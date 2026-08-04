@@ -28,16 +28,34 @@
     "mcp_config": {
       "command": "node",
       "args": ["${__dirname}/dist/index.js"],
-      "env": {}
+      "env": {
+        "FRONTIER_HOME": "${user_config.home}"
+      }
     }
   },
   "tools": [
     {
       "name": "ping",
       "description": "Liveness check. Returns the frontier server name, version, and current time. Makes no network calls and touches no storage."
+    },
+    {
+      "name": "cache_status",
+      "description": "Diagnostics for the on-disk cache: entry counts by namespace, freshness, age distribution, and hit rate by tool. Makes no network calls."
+    },
+    {
+      "name": "clear_cache",
+      "description": "Delete cached entries, optionally limited to one namespace."
     }
   ],
   "tools_generated": false,
+  "user_config": {
+    "home": {
+      "type": "directory",
+      "title": "Data directory",
+      "description": "Where frontier keeps its cache and snapshots. Defaults to .frontier in your home directory.",
+      "required": false
+    }
+  },
   "compatibility": {
     "platforms": ["darwin", "win32", "linux"],
     "runtimes": {

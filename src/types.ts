@@ -208,20 +208,123 @@ export const REGISTRY_NAMES: readonly RegistryName[] = [
 ] as const;
 
 /**
- * A normalized primary-source record. `fields` keeps the registry's own
- * key/value payload intact so the verifier can read registry-specific
- * distinctions (510(k) vs PMA, grant date vs filing date) without this type
- * having to enumerate every registry's schema.
+ * Registry records are a discriminated union, one member per registry, rather
+ * than a shared shape with an open `Record<string, unknown>` payload.
+ *
+ * The reason is §6.1: the whole point of hitting a registry first is that it
+ * settles distinctions secondary sources blur. openFDA settles
+ * clearance-vs-approval because 510(k) and PMA are separate records with
+ * separate dates. That distinction only survives into the verifier if the type
+ * system carries it — an untyped bag pushes the decision to a string lookup at
+ * the call site, where a typo degrades silently into "no event type found".
+ *
+ * Each member is mapped to an `EventType` by its own typed function in
+ * `src/registry.ts`. Adding a registry is therefore a compile error until its
+ * mapping exists.
  */
-export interface RegistryRecord {
-  registry: RegistryName;
+interface RegistryRecordBase {
   /** The registry's own identifier — K number, PMA number, DOI, patent number. */
   record_id: string;
   title: string;
-  /** ISO 8601, may be partial. The date the registry attests to. */
+  /**
+   * ISO 8601, may be partial. The date the registry attests to *for the event*.
+   * Which underlying date this is differs per registry and is documented on
+   * each member; the raw dates are also kept, because the gap between them is
+   * itself evidence (§6.6).
+   */
   date?: string;
+  date_precision?: DatePrecision;
   url: string;
-  fields: Record<string, unknown>;
+}
+
+/**
+ * FDA premarket submission pathways. These are different legal instruments,
+ * not synonyms, and collapsing them is the canonical failure this system
+ * exists to catch.
+ */
+export type OpenFdaSubmissionType = '510k' | 'pma_original' | 'pma_supplement' | 'de_novo' | 'hde';
+
+export interface OpenFdaDeviceRecord extends RegistryRecordBase {
+  registry: 'openfda_device';
+  submission_type: OpenFdaSubmissionType;
+  /** K number for 510(k); P/H/DEN number for the others. */
+  submission_number: string;
+  applicant?: string;
+  device_name?: string;
+  product_code?: string;
+  /** FDA decision code, e.g. "SESE" (substantially equivalent), "APPR". */
+  decision_code?: string;
+  /** ISO. The date FDA issued its decision. This is what `date` carries. */
+  decision_date?: string;
+  /**
+   * ISO. The date FDA received the submission — frequently the previous
+   * calendar year. Kept because secondary sources routinely cite it as the
+   * clearance date, which is one source of the AESOP 1993/1994 split.
+   */
+  received_date?: string;
+}
+
+export type CrossrefWorkType =
+  | 'journal-article'
+  | 'proceedings-article'
+  | 'book-chapter'
+  | 'posted-content'
+  | 'report'
+  | 'dataset'
+  | 'other';
+
+export interface CrossrefRecord extends RegistryRecordBase {
+  registry: 'crossref';
+  doi: string;
+  work_type: CrossrefWorkType;
+  container_title?: string;
+  publisher?: string;
+  authors: string[];
+  /** ISO. Earliest of issued / published-print / published-online. Carried by `date`. */
+  issued_date?: string;
+}
+
+export interface PatentsViewRecord extends RegistryRecordBase {
+  registry: 'patentsview';
+  patent_number: string;
+  /** ISO. Date the patent was granted. This is what `date` carries. */
+  grant_date?: string;
+  /** ISO. Date the application was filed — typically years earlier. */
+  filing_date?: string;
+  assignees: string[];
+  inventors: string[];
+  patent_kind?: string;
+}
+
+export interface WikipediaRecord extends RegistryRecordBase {
+  registry: 'wikipedia';
+  page_id: number;
+  /** Canonical title after redirect resolution. */
+  canonical_title: string;
+  /** Lead-section extract, truncated. Short snippet only — see §4 on storage. */
+  extract?: string;
+  /**
+   * ISO. Last revision timestamp. Attests to the *article*, never to the
+   * subject, so it never populates `date`.
+   */
+  revision_date?: string;
+}
+
+export type RegistryRecord = OpenFdaDeviceRecord | CrossrefRecord | PatentsViewRecord | WikipediaRecord;
+
+/**
+ * What a registry record attests about a claim's `event_type`.
+ *
+ * `confidence` is not a probability — it records whether the registry itself
+ * draws the distinction (`definitive`, e.g. a 510(k) record is a clearance by
+ * construction) or whether this server inferred it from a weaker signal
+ * (`inferred`). Only `definitive` is allowed to short-circuit §6.1.
+ */
+export interface EventTypeAttestation {
+  event_type: EventType | null;
+  confidence: 'definitive' | 'inferred' | 'none';
+  /** Why this mapping holds — surfaced in `Source.supports` and in debugging. */
+  reason: string;
 }
 
 // ---------------------------------------------------------------------------
