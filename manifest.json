@@ -1,0 +1,47 @@
+{
+  "manifest_version": "0.2",
+  "name": "frontier",
+  "display_name": "Frontier",
+  "version": "0.1.0",
+  "description": "Builds verified historical timelines of technical fields and tracks their research frontier.",
+  "long_description": "Frontier verifies historical milestone claims against primary sources and retrieves current research, so a timeline can be built from records rather than from recollection.\n\nEach claim field — entity, event type, date, superlative — is verified independently against free, keyless public APIs (arXiv, PubMed, Crossref, openFDA, Wikipedia, PatentsView). The server returns structured evidence: which sources attest to which values, how independent those sources are, and where the attested values split into distinct modes that suggest two real events have been merged under one label.\n\nThe server makes no model calls of its own. It retrieves, normalizes, deduplicates, caches, and scores; interpretation and naming are left to the model calling it.",
+  "author": {
+    "name": "WildCat231",
+    "url": "https://github.com/WildCat231"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WildCat231/MCP"
+  },
+  "license": "MIT",
+  "keywords": [
+    "research",
+    "timeline",
+    "verification",
+    "citations",
+    "literature",
+    "provenance"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "ping",
+      "description": "Liveness check. Returns the frontier server name, version, and current time. Makes no network calls and touches no storage."
+    }
+  ],
+  "tools_generated": false,
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
