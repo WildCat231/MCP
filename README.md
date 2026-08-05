@@ -8,7 +8,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**Phase 6 of 10 — `verify_claim` done. The §10.6 gate passes; 206 tests green, no skips.**
+**Phase 7 of 10 — conflation detection done. 230 tests green, no skips.**
 
 | Phase | | |
 |---|---|---|
@@ -18,7 +18,8 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 | 4 | `search_literature` | done |
 | 5 | `check_registry` | done |
 | 6 | `verify_claim`, independence, superlatives | done |
-| 7–10 | conflation, clustering, snapshots, packaging | not started |
+| 7 | Conflation detection (§6.6) | done |
+| 8–10 | clustering, snapshots, packaging | not started |
 
 Snapshot storage (§4 integrity, normally Phase 9) is also implemented ahead of order, because its read semantics had to be settled against the cache's.
 
@@ -56,7 +57,32 @@ Each field — entity, event type, date — is verified **independently** (§6.2
 
 **Superlatives** (§6.3) trigger `disconfirm_superlative`, which searches the category with the **entity removed**; searching it with the entity just rediscovers the claimant. Any rival makes the field contested, full stop — no weighing, and both sides are returned.
 
-**Conflation (§6.6) is Phase 7** and says so in the output, rather than reporting `suspected: false` as though a check had run.
+**Conflation (§6.6)** runs over the full candidate set, not the anchored subset — an anchored claim has one record and therefore one of everything, so anchoring would hide exactly the ambiguity the check exists to surface.
+
+## Conflation detection
+
+§6.6 forbids doing this semantically. The signal is distributional: *noise scatters, conflation clusters*. Nothing in the detector reads a title or an abstract.
+
+| Check | Fires when |
+|---|---|
+| **Attribution** | ≥2 organizations each hold ≥2 records under one name |
+| **Alias drift** | Two expansions sit in the 0.3–0.9 similarity band **and** each carries a token the other lacks |
+| **Event type** | ≥2 event types each attested by ≥2 sources |
+| **Date** | ≥2 tight modes (internal spread ≤1 yr), each ≥2 sources, separated by >3 yr |
+
+Every check is reported, including clean ones, so a caller can tell "checked, nothing found" from "not checked". The output is evidence, never a question — §6.6 leaves the clarifying question to Claude, since only Claude knows whether the ambiguity affects the rest of the timeline.
+
+### What it fires on here — and what it does not
+
+**The date detector does not fire on AESOP**, and should not. The spec predicted a 1993/1994 bimodal split; K931783 shows received 1993-04-09 and decided 1993-11-22, both in one year. There is no second mode, and a detector tuned to manufacture one would be wrong. A test pins this down so the rule is not quietly re-added.
+
+**The bimodality that genuinely exists is on entity.** A "DA VINCI" search returns records from three unrelated companies — Intuitive Surgical, Da Vinci Medical, Nova/Da Vinci Systems — two holding multiple records each. That is §6.6's exact shape, and the unanchored K935999 adversarial entry is what exercises it end to end.
+
+Three findings from building it:
+
+- **Device names are a useless clustering key.** "DAVINCI CHOLANGIOGRAM DELIVERY DEVICE" and "INTUITIVE SURGICAL DA VINCI ENDOSCOPIC CONTROL SYSTEM" share almost no tokens, so name clustering yields five singletons and misses a real conflation entirely. The *applicant* collapses them into two real modes — and it is a fact the registry states rather than a string inference.
+- **Entity conflation outranks date conflation**, because it causes it. If one name covers two companies, of course their records cluster in different decades; reporting the date split as the finding would describe the symptom and hide the cause. When entity fires, downstream multimodality is noted as expected rather than reported separately.
+- **Similarity alone cannot detect drift.** "Smart Tissue Autonomous Robot" vs the same phrase plus "system" scores 0.8 — *higher* than the real STAR drift case at 0.6. The discriminator is mutual exclusivity: each phrase must carry a token the other lacks. Containment is specification; divergence is drift. openFDA also truncates `device_name` at ~50 characters, so prefix-tolerant token matching stops "…OPTIMAL POS" reading as a different expansion of "…Optimal Positioning".
 
 ## What truncation cost us
 
@@ -265,6 +291,7 @@ src/
     verify.ts           §6 orchestration: fields verified independently
     independence.ts     §6.4 scoring
     superlative.ts      §6.3 adversarial disconfirmation
+    conflation.ts       §6.6 distributional detection
   cache.ts              TTL cache layer
   snapshot.ts           content-addressed snapshots, verified reads
   store.ts              atomic filesystem JSON store
@@ -287,6 +314,7 @@ test/
   search.test.js        adaptive window, context anchoring, dedup, failures
   registries.test.js    truncation, both openFDA databases, degradation
   verify.test.js        independence, superlatives, the §10.6 gate, determinism
+  conflation.test.js    entity/alias/date/event-type detection and its negatives
   golden.test.js        golden-set shape, incl. date_precision on every entry
   recorder.test.js      guards the recorder's raw-capture invariant
   fixtures/             recorded API responses (raw bytes + .meta.json)

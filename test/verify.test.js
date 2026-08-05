@@ -383,9 +383,7 @@ test('a claim without a superlative skips disconfirmation entirely', async () =>
 // Phase boundaries and determinism
 // ---------------------------------------------------------------------------
 
-test('conflation is declared not-implemented rather than reported as false', async () => {
-  // §6.6 is Phase 7. Reporting suspected:false as if a check had run would be
-  // a quiet lie about what was tested.
+test('every conflation check is reported, so "clean" differs from "not run"', async () => {
   const entry = golden.entries.find((e) => e.id === 'aesop-510k-clearance');
   const result = await verifyClaim(
     { claim: withId(entry.claim) },
@@ -393,7 +391,11 @@ test('conflation is declared not-implemented rather than reported as false', asy
     deps({ '510k.json': () => ({ body: fixture('openfda-k931783') }) }),
   );
   assert.equal(result.conflation.suspected, false);
-  assert.match(result.warning, /Conflation detection \(§6\.6\) is not implemented/);
+  assert.deepEqual(
+    result.conflation_checks.map((c) => c.field).sort(),
+    ['date', 'entity', 'entity_aliases', 'event_type'],
+  );
+  for (const check of result.conflation_checks) assert.ok(check.reason, `${check.field} must explain itself`);
 });
 
 test('verification is deterministic across repeated runs', async () => {

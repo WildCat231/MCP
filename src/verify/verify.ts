@@ -1,11 +1,9 @@
 /**
  * `verify_claim` — the §6 orchestration.
  *
- * Phase 6 covers §6.1 (registry first), §6.2 (fields verified independently),
- * §6.3 (superlatives), §6.4 (independence) and §6.5 (overall status).
- * Conflation detection (§6.6) is Phase 7 and is deliberately absent; the
- * result reports `conflation.suspected = false` with a note saying so, rather
- * than implying the check ran.
+ * Covers §6.1 (registry first), §6.2 (fields verified independently), §6.3
+ * (superlatives), §6.4 (independence), §6.5 (overall status) and §6.6
+ * (conflation).
  *
  * ## Why fields are verified separately
  *
@@ -37,6 +35,8 @@ import type {
   VerifiableField,
 } from '../types.js';
 import { STATUS_SEVERITY } from '../types.js';
+import { detectConflation } from './conflation.js';
+import type { ConflationResult } from './conflation.js';
 import { scoreIndependence } from './independence.js';
 import { disconfirmSuperlative } from './superlative.js';
 import type { DisconfirmResult } from './superlative.js';
@@ -71,6 +71,8 @@ export interface VerifyClaimOutput extends VerificationResult {
   entity_candidates?: EntityCandidate[];
   /** True when the claim named a specific record and it was found. */
   anchored: boolean;
+  /** Every §6.6 check that ran, including those that came back clean. */
+  conflation_checks?: ConflationResult['checks'];
   warning?: string;
   error?: string;
 }
@@ -126,6 +128,19 @@ function recordToSource(record: RegistryRecord, retrievedAt: string): Source {
     supports,
     locator: record.record_id,
   };
+}
+
+/** Collapse repeated strings into AttestedValue counts, for the §6.6 checks. */
+function countValues(values: string[]): AttestedValue[] {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed === '') continue;
+    counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, source_count]) => ({ value, source_count, max_tier: 'primary' as SourceTier }))
+    .sort((a, b) => b.source_count - a.source_count || a.value.localeCompare(b.value));
 }
 
 function highestTier(tiers: SourceTier[]): SourceTier {
@@ -404,9 +419,30 @@ export async function verifyClaim(
       .filter((s): s is Status => s !== undefined),
   );
 
-  // §6.6 belongs to Phase 7. Saying so beats reporting `suspected: false` as
-  // though a check had run and found nothing.
-  notes.push('Conflation detection (§6.6) is not implemented yet; conflation.suspected is not a finding.');
+  // §6.6. Run over the full candidate set rather than the anchored subset: an
+  // anchored claim has one record and therefore one of everything, so anchoring
+  // would hide precisely the ambiguity this check exists to surface.
+  const allSources = allRecords.map((record) => recordToSource(record, retrievedAt));
+  const conflation = detectConflation({
+    dates: attestedFor('date', allSources).values,
+    event_types: attestedFor('event_type', allSources).values,
+    attributions: countValues(
+      allRecords
+        .map((r) => (r.registry === 'openfda_device' ? r.applicant : undefined))
+        .filter((a): a is string => a !== undefined),
+    ),
+    // Expansions attested across sources, plus any the claim itself carries —
+    // §6.6's alias-drift rule is about expansions diverging, wherever from.
+    aliases: countValues([
+      ...(claim.entity_aliases ?? []),
+      ...allSources.flatMap((s) => s.supports.filter((x) => x.field === 'entity').map((x) => x.value)),
+    ]),
+    entity: claim.entity,
+  });
+
+  if (conflation.suspected && conflation.evidence !== undefined) {
+    notes.push(`Conflation suspected on ${conflation.evidence.field}: ${conflation.evidence.reason}`);
+  }
 
   if (sources.length === 0 && errors.length === 0) {
     notes.push(
@@ -419,12 +455,16 @@ export async function verifyClaim(
     claim_id: claim.id,
     fields,
     overall,
-    conflation: { suspected: false },
+    conflation: {
+      suspected: conflation.suspected,
+      ...(conflation.evidence === undefined ? {} : { evidence: conflation.evidence }),
+    },
     retrieved_at: retrievedAt,
     cache_hit: false,
     ...(superlativeDetail === undefined ? {} : { superlative_detail: superlativeDetail }),
     registries_queried: registriesQueried,
     anchored,
+    conflation_checks: conflation.checks,
     ...(entityCandidates.length === 0 ? {} : { entity_candidates: entityCandidates }),
     ...(notes.length === 0 ? {} : { warning: notes.join(' ') }),
     ...(errors.length === 0 ? {} : { error: errors.join('; ') }),
