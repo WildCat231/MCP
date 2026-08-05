@@ -27,6 +27,7 @@ const EXPECTED_TOOLS = [
   'cache_status',
   'check_registry',
   'clear_cache',
+  'cluster_frontier',
   'disconfirm_superlative',
   'ping',
   'search_literature',

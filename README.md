@@ -8,7 +8,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**Phase 7 of 10 — conflation detection done. 230 tests green, no skips.**
+**Phase 8 of 10 — `cluster_frontier` done. 248 tests green, no skips.**
 
 | Phase | | |
 |---|---|---|
@@ -19,7 +19,8 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 | 5 | `check_registry` | done |
 | 6 | `verify_claim`, independence, superlatives | done |
 | 7 | Conflation detection (§6.6) | done |
-| 8–10 | clustering, snapshots, packaging | not started |
+| 8 | `cluster_frontier` | done |
+| 9–10 | snapshots, packaging | not started |
 
 Snapshot storage (§4 integrity, normally Phase 9) is also implemented ahead of order, because its read semantics had to be settled against the cache's.
 
@@ -286,6 +287,7 @@ src/
   http.ts               the single outbound HTTP path
   dates.ts              partial-date normalization with explicit precision
   search.ts             search_literature: adaptive window, dedup
+  cluster.ts            TF-IDF clustering, no model download
   registries.ts         check_registry: all four registries, truncation reporting
   verify/
     verify.ts           §6 orchestration: fields verified independently
@@ -315,6 +317,7 @@ test/
   registries.test.js    truncation, both openFDA databases, degradation
   verify.test.js        independence, superlatives, the §10.6 gate, determinism
   conflation.test.js    entity/alias/date/event-type detection and its negatives
+  cluster.test.js       unnamed clusters, cold fields, determinism
   golden.test.js        golden-set shape, incl. date_precision on every entry
   recorder.test.js      guards the recorder's raw-capture invariant
   fixtures/             recorded API responses (raw bytes + .meta.json)

@@ -33,6 +33,7 @@ import { frontierHome } from './paths.js';
 import { checkRegistry } from './registries.js';
 import type { CheckRegistryOutput } from './registries.js';
 import type { VerifyClaimOutput } from './verify/verify.js';
+import { clusterFrontier } from './cluster.js';
 import { searchLiterature } from './search.js';
 import { verifyClaim } from './verify/verify.js';
 import { disconfirmSuperlative } from './verify/superlative.js';
@@ -113,6 +114,7 @@ export function createServer(): McpServer {
   registerCheckRegistry(server);
   registerVerifyClaim(server);
   registerDisconfirmSuperlative(server);
+  registerClusterFrontier(server);
   registerCacheStatus(server);
   registerClearCache(server);
 
@@ -238,6 +240,56 @@ function registerCheckRegistry(server: McpServer): void {
         return textResult({ ...result, cache_hit: false });
       } catch (err) {
         return errorResult(`check_registry failed: ${describe(err)}`, { records: [] });
+      }
+    },
+  );
+}
+
+const paperSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  abstract: z.string().optional(),
+  authors: z.array(z.string()).default([]),
+  published: z.string().default(''),
+  doi: z.string().optional(),
+  url: z.string().default(''),
+  venue: z.string().optional(),
+  source: z.enum(['arxiv', 'pubmed', 'crossref']).default('crossref'),
+  source_id: z.string().default(''),
+});
+
+function registerClusterFrontier(server: McpServer): void {
+  server.registerTool(
+    'cluster_frontier',
+    {
+      title: 'Cluster frontier',
+      description:
+        'Group recent papers into research themes by TF-IDF cosine similarity. Clusters come back ' +
+        'UNNAMED by design: top terms and representative papers are returned as the evidence for naming, ' +
+        'and the naming is yours. No model is called and none is downloaded. A corpus below 4 papers is ' +
+        'reported as too sparse rather than split into meaningless groups.',
+      inputSchema: {
+        papers: z.array(paperSchema).describe('Papers to cluster, typically from search_literature.'),
+        component: z.string().min(1).describe('The decomposed component these papers belong to.'),
+        top_terms: z.number().int().positive().max(50).optional(),
+        representatives: z.number().int().positive().max(20).optional(),
+        threshold: z.number().min(0).max(1).optional().describe('Cosine merge threshold. Default 0.18.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          clusterFrontier({
+            papers: input.papers as never,
+            component: input.component,
+            ...(input.top_terms === undefined ? {} : { top_terms: input.top_terms }),
+            ...(input.representatives === undefined ? {} : { representatives: input.representatives }),
+            ...(input.threshold === undefined ? {} : { threshold: input.threshold }),
+          }),
+        );
+      } catch (err) {
+        return errorResult(`cluster_frontier failed: ${describe(err)}`, { clusters: [] });
       }
     },
   );

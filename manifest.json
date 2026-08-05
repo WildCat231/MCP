@@ -57,6 +57,10 @@
       "description": "Verify a milestone claim against primary sources. Entity, event type and date are verified independently, registries first; superlatives trigger an adversarial search for rival claimants. Nothing is dropped for failing verification."
     },
     {
+      "name": "cluster_frontier",
+      "description": "Group papers into research themes by TF-IDF cosine similarity. Clusters are returned unnamed, with top terms and representative papers as the evidence for naming. No model is called or downloaded."
+    },
+    {
       "name": "cache_status",
       "description": "Diagnostics for the on-disk cache: entry counts by namespace, freshness, age distribution, and hit rate by tool. Makes no network calls."
     },
