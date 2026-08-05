@@ -1,0 +1,10 @@
+{
+  "name": "openfda-davinci-2000",
+  "note": "RESOLVES the da Vinci date: any da Vinci clearance decided during calendar 2000. NOT_FOUND means the spec date matches no FDA decision.",
+  "url": "https://api.fda.gov/device/510k.json?limit=25&search=(device_name:\"DA VINCI\"+OR+applicant:\"DA VINCI\")+AND+decision_date:[20000101+TO+20001231]",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T23:16:10.457Z",
+  "bytes": 6395,
+  "sha256": "d6db84fd43792bcf13c6a37f3ccff315ac3893cb6c0b03a4609039f260d7884c"
+}

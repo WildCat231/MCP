@@ -1,0 +1,10 @@
+{
+  "name": "openfda-davinci-510k-earliest",
+  "note": "RESOLVES the da Vinci date: 510(k) records sorted by decision_date ascending. The golden row's 2000-07 stands or falls on this.",
+  "url": "https://api.fda.gov/device/510k.json?limit=5&sort=decision_date%3Aasc&search=(device_name:\"DA VINCI\"+OR+applicant:\"DA VINCI\")",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T23:16:10.038Z",
+  "bytes": 71312,
+  "sha256": "13f4d749e5cceaa16ccfb136aebcc2655d7e7046461dbef3d742b50188cd1c85"
+}

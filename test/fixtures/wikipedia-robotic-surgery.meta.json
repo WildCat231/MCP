@@ -1,0 +1,10 @@
+{
+  "name": "wikipedia-robotic-surgery",
+  "note": "The article ROBODOC actually resolves to, per wikipedia-robodoc-search. A real article, for the non-disambiguation path.",
+  "url": "https://en.wikipedia.org/api/rest_v1/page/summary/Robotic_surgery",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8; profile=\"https://www.mediawiki.org/wiki/Specs/Summary/1.5.0\"",
+  "recorded_at": "2026-08-05T23:16:10.832Z",
+  "bytes": 2226,
+  "sha256": "be609aab3fc096e450b495ef39fa650da0d5c38d50d677f5cb7d6a61c74029ce"
+}
