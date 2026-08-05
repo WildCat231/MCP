@@ -32,7 +32,13 @@ import type { CacheNamespace } from './cache.js';
 import { frontierHome } from './paths.js';
 import { checkRegistry } from './registries.js';
 import type { CheckRegistryOutput } from './registries.js';
+import type { VerifyClaimOutput } from './verify/verify.js';
 import { searchLiterature } from './search.js';
+import { verifyClaim } from './verify/verify.js';
+import { disconfirmSuperlative } from './verify/superlative.js';
+import { claimId } from './claim.js';
+import { EVENT_TYPES } from './types.js';
+import type { Claim, EventType } from './types.js';
 import type { SearchLiteratureOutput } from './search.js';
 
 const require = createRequire(import.meta.url);
@@ -105,6 +111,8 @@ export function createServer(): McpServer {
   registerPing(server);
   registerSearchLiterature(server);
   registerCheckRegistry(server);
+  registerVerifyClaim(server);
+  registerDisconfirmSuperlative(server);
   registerCacheStatus(server);
   registerClearCache(server);
 
@@ -230,6 +238,112 @@ function registerCheckRegistry(server: McpServer): void {
         return textResult({ ...result, cache_hit: false });
       } catch (err) {
         return errorResult(`check_registry failed: ${describe(err)}`, { records: [] });
+      }
+    },
+  );
+}
+
+/** Shared input shape for the two claim-taking tools. */
+const claimSchema = {
+  entity: z.string().min(1),
+  entity_aliases: z.array(z.string()).optional(),
+  event_type: z.enum(EVENT_TYPES as unknown as [EventType, ...EventType[]]),
+  date: z.string().describe('ISO 8601, may be partial: "1993" | "1993-11" | "1993-11-04".'),
+  date_precision: z.enum(['year', 'month', 'day']),
+  superlative: z.string().nullable().optional(),
+  description: z.string().default(''),
+  component: z.string().optional(),
+  registry: z
+    .enum(REGISTRY_NAMES as unknown as [RegistryName, ...RegistryName[]])
+    .optional()
+    .describe('Registry the record id belongs to. Required alongside registry_id.'),
+  registry_id: z
+    .string()
+    .optional()
+    .describe('Primary record id (K number, PMA number, DOI, patent number). The canonical anchor once known.'),
+};
+
+/** Build a Claim, deriving `id` rather than trusting a supplied one. */
+function toClaim(input: Record<string, unknown>): Claim {
+  const partial = {
+    entity: input['entity'] as string,
+    event_type: input['event_type'] as EventType,
+    date: input['date'] as string,
+    ...(input['registry'] === undefined ? {} : { registry: input['registry'] as RegistryName }),
+    ...(input['registry_id'] === undefined ? {} : { registry_id: input['registry_id'] as string }),
+  };
+  return {
+    ...partial,
+    id: claimId(partial),
+    date_precision: input['date_precision'] as Claim['date_precision'],
+    description: (input['description'] as string) ?? '',
+    ...(input['entity_aliases'] === undefined ? {} : { entity_aliases: input['entity_aliases'] as string[] }),
+    ...(input['superlative'] === undefined ? {} : { superlative: input['superlative'] as string | null }),
+    ...(input['component'] === undefined ? {} : { component: input['component'] as string }),
+  };
+}
+
+function registerVerifyClaim(server: McpServer): void {
+  server.registerTool(
+    'verify_claim',
+    {
+      title: 'Verify claim',
+      description:
+        'Verify a milestone claim against primary sources. Each field — entity, event type, date — is ' +
+        'verified INDEPENDENTLY, because a claim can be right about what happened and wrong about when, ' +
+        'or name a real entity and a real date under the wrong event type. Registries are consulted first; ' +
+        'for regulatory claims openFDA settles clearance-vs-approval outright. A superlative triggers an ' +
+        'adversarial search for rival claimants, and any that surface make it contested. Nothing is ever ' +
+        'dropped for failing verification — an unverified claim is returned flagged.',
+      inputSchema: {
+        claim: z.object(claimSchema),
+        depth: z.enum(['fast', 'thorough']).optional(),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ claim, depth }) => {
+      try {
+        const built = toClaim(claim as unknown as Record<string, unknown>);
+        const request = { claim: built, ...(depth === undefined ? {} : { depth }) };
+
+        const cache = await getCache().catch(() => undefined);
+        if (cache !== undefined) {
+          const hit = await cache.get<VerifyClaimOutput>('verification', 'verify_claim', request);
+          if (hit.outcome === 'fresh' && hit.value !== undefined) {
+            return textResult({ ...hit.value, cache_hit: true });
+          }
+        }
+
+        const result = await verifyClaim(request);
+        if (cache !== undefined && result.error === undefined) {
+          await cache.set('verification', 'verify_claim', request, result);
+        }
+        return textResult(result);
+      } catch (err) {
+        return errorResult(`verify_claim failed: ${describe(err)}`);
+      }
+    },
+  );
+}
+
+function registerDisconfirmSuperlative(server: McpServer): void {
+  server.registerTool(
+    'disconfirm_superlative',
+    {
+      title: 'Disconfirm superlative',
+      description:
+        'Adversarial search for a superlative claim. A source saying "X was first" does not rule out Y, so ' +
+        'this queries the superlative CATEGORY with the entity removed and returns every rival claimant it ' +
+        'finds. Called automatically by verify_claim when a claim carries a superlative. Competing claimants ' +
+        'are returned unranked: the disagreement is the finding, and resolving it is the caller\'s job.',
+      inputSchema: { claim: z.object(claimSchema) },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ claim }) => {
+      try {
+        return textResult(await disconfirmSuperlative(toClaim(claim as unknown as Record<string, unknown>)));
+      } catch (err) {
+        return errorResult(`disconfirm_superlative failed: ${describe(err)}`, { competing_claimants: [] });
       }
     },
   );

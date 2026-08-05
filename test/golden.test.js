@@ -41,11 +41,11 @@ const STATUSES = Object.keys(STATUS_SEVERITY);
 
 /** Every asserted entry: the positives, the refuted set, and the negative. */
 function allEntries() {
-  return [...golden.entries, ...golden.refuted, golden.negative];
+  return [...golden.entries, ...golden.refuted, ...golden.adversarial, golden.negative];
 }
 
 /** Field expectations that carry a status, for the §6.5 severity check. */
-const STATUS_FIELDS = ['date', 'event_type', 'superlative'];
+const STATUS_FIELDS = ['date', 'event_type', 'superlative', 'entity'];
 
 /** Assert a date string and its declared precision agree. */
 function assertPrecision(date, precision, label) {
@@ -131,9 +131,11 @@ test('all three precisions are exercised somewhere in the set', async () => {
   }
   assert.deepEqual([...precisions].sort(), ['day', 'month', 'year']);
 
-  const davinci = golden.entries.find((e) => e.id === 'da-vinci-clearance');
-  const monthMode = davinci.expect.date.modes.find((m) => m.precision === 'month');
-  assert.equal(monthMode.value, '2000-07', "the spec's month-precision date is retained as a disputed mode");
+  // Month precision now lives in the refuted 2000-07 claim rather than as a
+  // mode of the corroborated row — the spec's date was disproved, not merged.
+  const refuted = golden.refuted.find((e) => e.id === 'da-vinci-2000-07');
+  assert.equal(refuted.claim.date_precision, 'month');
+  assert.equal(refuted.claim.date, '2000-07');
 });
 
 test('every event_type and status is one the type system knows', async () => {
@@ -302,34 +304,86 @@ test('both corrected rows are anchored to their K numbers', async () => {
   assert.equal(davinci.claim.registry_id, 'K002489');
 });
 
-test('the resolved disputes record what changed and on what evidence', async () => {
-  assert.equal(golden.resolved_disputes.length, 2);
+test('every resolved dispute records what changed and on what evidence', async () => {
+  assert.equal(golden.resolved_disputes.length, 3);
   for (const resolved of golden.resolved_disputes) {
-    assert.match(resolved.was, /regulatory_approval/);
-    assert.match(resolved.now, /regulatory_clearance/);
-    assert.match(resolved.resolved_by, /openfda-pma-smoke/, 'the control that made the absence readable');
+    assert.ok(resolved.entry && resolved.was && resolved.now, `${resolved.entry}: incomplete resolution`);
+    assert.match(resolved.resolved_by, /openfda-/, 'resolved by a named fixture, not a judgement call');
   }
+
+  // Two event-type corrections, driven by the PMA controls.
+  const eventTypeFixes = golden.resolved_disputes.filter((r) => /regulatory_approval/.test(r.was));
+  assert.equal(eventTypeFixes.length, 2);
+  for (const fix of eventTypeFixes) {
+    assert.match(fix.now, /regulatory_clearance/);
+    assert.match(fix.resolved_by, /openfda-pma-smoke/, 'the control that made the absence readable');
+  }
+
+  // One date correction, driven by sorting.
+  const dateFix = golden.resolved_disputes.find((r) => /date contested/.test(r.was));
+  assert.match(dateFix.resolved_by, /sorted/);
 });
 
-test("da Vinci's date stays disputed — a truncated page cannot establish an earliest", async () => {
-  // 25 of 115 records in openFDA's default unspecified order, and the oldest
-  // is not in that page. Asserting 2001-03-02 as THE clearance date would
-  // repeat, smaller, the error this whole exercise corrected.
-  assert.equal(golden.disputed.length, 1, 'only the da Vinci date remains open');
-  const dispute = golden.disputed[0];
-  assert.equal(dispute.entry, 'da-vinci-clearance');
-  assert.equal(dispute.field, 'date', 'the event type is settled; only the date is not');
-  assert.equal(dispute.status, 'unresolved');
+test("da Vinci's date is resolved, and nothing remains disputed", async () => {
+  // Sorting discharged the truncation caveat: an ascending sort makes the
+  // first records the global earliest, so 5 of 115 is now enough.
+  assert.equal(golden.disputed.length, 0, 'no open disputes');
 
-  assert.match(dispute.evidence_so_far, /25 of 115/, 'the truncation must be stated');
-  assert.ok(dispute.candidate_explanations.length >= 3, 'competing explanations, not one guess');
-  assert.ok(dispute.resolved_by.decisive.includes('openfda-davinci-510k-earliest'));
-  assert.ok(dispute.resolved_by.decisive.includes('openfda-davinci-2000'));
-  assert.ok(dispute.not_yet_changed_because);
+  const entry = golden.entries.find((e) => e.id === 'da-vinci-clearance');
+  assert.equal(entry.claim.date, '2001-03-02');
+  assert.equal(entry.claim.date_precision, 'day');
+  assert.equal(entry.claim.registry_id, 'K002489');
+  assert.equal(entry.expect.date.status, 'corroborated');
+  assert.equal(entry.expect.overall, 'corroborated');
+  assert.deepEqual(entry.expect.date.modes.map((m) => m.value), ['2001-03-02']);
 
-  const entry = golden.entries.find((e) => e.id === dispute.entry);
-  assert.equal(entry.expect.date.status, 'contested', 'the dispute must show in the expectation too');
-  assert.deepEqual(entry.expect.date.modes.map((m) => m.value), ['2001-03-02', '2000-07']);
+  const resolution = golden.resolved_disputes.find((r) => /date contested/.test(r.was));
+  assert.ok(resolution, 'the resolution must be recorded, not just applied');
+  assert.match(resolution.resolved_by, /sorted/);
+});
+
+test('the da Vinci row names its sibling record rather than resolving the ambiguity silently', async () => {
+  // K002489 is the earliest Intuitive clearance; K011002 is the one actually
+  // called "da Vinci Surgical System". Two defensible readings of one row.
+  const entry = golden.entries.find((e) => e.id === 'da-vinci-clearance');
+  assert.equal(entry.expect.sibling_record.registry_id, 'K011002');
+  assert.equal(entry.expect.sibling_record.date, '2001-05-30');
+  assert.match(entry.expect.sibling_record.note, /earliest/i);
+});
+
+test('the spec 2000-07 date is refuted, with the reason recorded', async () => {
+  const refuted = golden.refuted.find((e) => e.id === 'da-vinci-2000-07');
+  assert.ok(refuted, '2000-07 must be kept as a refuted case, not simply deleted');
+  assert.equal(refuted.expect.overall, 'refuted');
+  assert.equal(refuted.expect.date.status, 'refuted');
+  assert.match(refuted.expect.date.note, /K000393/, 'the one 2000 match must be named');
+  assert.match(refuted.expect.date.note, /curing light/i, 'and identified as an unrelated device');
+  assert.match(refuted.expect.date.note, /receipt, not a decision/);
+
+  // It concerns the same event as the corroborated row.
+  assert.equal(refuted.expect.same_claim_id_as, 'da-vinci-clearance');
+  const correct = golden.entries.find((e) => e.id === 'da-vinci-clearance');
+  assert.equal(claimId(refuted.claim), claimId(correct.claim), 'same anchor, so one event');
+});
+
+test('the entity-ambiguity adversarial case is present and refuted on entity', async () => {
+  // Three companies share "DA VINCI" across the 115 matches. K935999 is
+  // laparoscopic, surgical, named DaVinci and dated 1994 — every surface
+  // feature invites the wrong match.
+  assert.equal(golden.adversarial.length, 1);
+  const entry = golden.adversarial[0];
+  assert.equal(entry.id, 'davinci-medical-1994-not-intuitive');
+  assert.equal(entry.claim.registry_id, undefined, 'deliberately unanchored — that is where the trap bites');
+  assert.equal(entry.matching_record.registry_id, 'K935999', 'the record it actually matches is recorded');
+
+  // Contested, not refuted: name similarity cannot discriminate the entity,
+  // and per §2 the server surfaces candidates rather than adjudicating.
+  assert.equal(entry.expect.entity.status, 'contested', 'the ambiguity is surfaced, not resolved');
+  assert.match(entry.expect.date.note, /correct for K935999/, 'the date is right — that is the trap');
+  assert.equal(entry.expect.overall, 'contested');
+  assert.equal(entry.expect.conflation.field, 'entity');
+  assert.match(entry.expect.entity.note, /applicant/, 'the applicant field is the discriminator');
+  assert.match(entry.expect.entity.note, /§2/, 'and the reason the server does not decide');
 });
 
 test('the AESOP clearance is NOT disputed — it has a complete primary record', async () => {

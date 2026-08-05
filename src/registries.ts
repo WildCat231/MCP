@@ -70,6 +70,15 @@ export interface CheckRegistryOutput {
   availability?: RegistryAvailability;
   /** Candidate titles when a Wikipedia lookup resolved to nothing usable. */
   candidates?: string[];
+  /**
+   * Distinct applicants across openFDA matches. Reported because a name is not
+   * an entity: a "DA VINCI" search returns records from Intuitive Surgical,
+   * "Da Vinci Medical, Inc.", and "Nova/Da Vinci Systems, Inc." — three
+   * unrelated companies, one of them a dental curing light. Several applicants
+   * in one result set is the §6.6 distributional signal for entity ambiguity,
+   * and it is returned as evidence rather than resolved here (§2).
+   */
+  distinct_applicants?: string[];
   warning?: string;
   error?: string;
 }
@@ -167,6 +176,15 @@ async function checkOpenFda(
     notes.push('Present in PMA and absent from 510(k): this device was APPROVED, not merely cleared.');
   }
 
+  const applicants = [...new Set(records.map((r) => r.applicant).filter((a): a is string => a !== undefined))].sort();
+  if (applicants.length > 1) {
+    notes.push(
+      `${applicants.length} distinct applicants match this name (${applicants.slice(0, 5).join('; ')}` +
+        `${applicants.length > 5 ? '; …' : ''}). A shared name is not a shared entity — check the applicant ` +
+        'before treating any of these records as the same device.',
+    );
+  }
+
   const errors = breakdown.filter((b) => b.error !== undefined).map((b) => b.source);
   if (errors.length > 0) {
     notes.push(
@@ -182,6 +200,7 @@ async function checkOpenFda(
     total_matches: total,
     truncated,
     breakdown,
+    ...(applicants.length === 0 ? {} : { distinct_applicants: applicants }),
     ...(notes.length === 0 ? {} : { warning: notes.join(' ') }),
   };
 }

@@ -2,29 +2,7 @@
   "field": "surgical robotics",
   "spec_reference": "CODEX_SPEC.md \u00a78",
   "note": "Hand-written expected answers. The pipeline is broken if it misses these. Every entry states date_precision explicitly on both the input claim and the expected verification, because precision is itself a claim: a source attesting '1985' has not attested '1985-01-01', and padding it would manufacture agreement or disagreement that no source expressed.",
-  "disputed": [
-    {
-      "entry": "da-vinci-clearance",
-      "field": "date",
-      "status": "unresolved",
-      "spec_says": "2000-07",
-      "evidence_so_far": "The event type is settled: da Vinci is absent from PMA (openfda-davinci-pma NOT_FOUND, with the PMA query proven working by openfda-pma-smoke returning 56,853 records) and has 115 510(k) records. The DATE is not settled. The earliest clearance seen is K002489, decided 2001-03-02, received 2000-08-10. Two problems with concluding anything: (1) 2000-08 is not 2000-07, so even the received date does not match the spec; (2) openfda-davinci-510k returned only 25 of 115 records in openFDA's default UNSPECIFIED order, and the oldest record is demonstrably not in that page \u2014 so an earlier clearance may exist and simply not have been retrieved.",
-      "candidate_explanations": [
-        "2000-07 refers to K002489's submission rather than its decision, misremembered by a month (received 2000-08-10).",
-        "2000-07 refers to a da Vinci clearance not present in the truncated 25-record page.",
-        "2000-07 refers to a non-FDA event entirely \u2014 a CE mark, a commercial launch, or a first clinical use.",
-        "2000-07 is simply wrong, propagated between secondary sources."
-      ],
-      "resolved_by": {
-        "decisive": [
-          "openfda-davinci-510k-earliest",
-          "openfda-davinci-2000"
-        ],
-        "rule": "openfda-davinci-510k-earliest sorts by decision_date ascending, so its first record IS the earliest da Vinci clearance. openfda-davinci-2000 asks directly whether any da Vinci clearance was decided in calendar 2000. If that returns NOT_FOUND, 2000-07 corresponds to no FDA decision and the date mode should be dropped to a single value with the spec date recorded as refuted. If it returns a record, anchor to it."
-      },
-      "not_yet_changed_because": "A truncated, unsorted page cannot establish an earliest date. Asserting 2001-03-02 as THE clearance date on 25 of 115 arbitrary records would repeat, in a smaller way, the error this whole exercise exists to correct."
-    }
-  ],
+  "disputed": [],
   "resolved_disputes": [
     {
       "entry": "da-vinci-clearance",
@@ -39,6 +17,13 @@
       "now": "regulatory_clearance 2008-08-06, anchored to K072629",
       "resolved_by": "Same controls: openfda-pma-smoke (200, 56,853 records) and openfda-pma-syntax-control. openfda-robodoc-pma then returned NOT_FOUND; openfda-robodoc-510k returned exactly 2 of 2 records, so unlike da Vinci this result is COMPLETE and the earliest is definitive.",
       "note": "Fully resolved: event type and date both."
+    },
+    {
+      "entry": "da-vinci-clearance",
+      "was": "date contested between 2001-03-02 and 2000-07",
+      "now": "corroborated at 2001-03-02, anchored to K002489",
+      "resolved_by": "openfda-davinci-510k-earliest (sorted decision_date:asc, so its first records are the global earliest) and openfda-davinci-2000 (total:1, a dental curing light). Together these show the earliest Intuitive da Vinci clearance is 2001-03-02 and that no Intuitive decision falls in 2000.",
+      "note": "The truncation caveat is discharged: sorting removed it. 2000-07 moves to the refuted set."
     }
   ],
   "deviations_from_spec": [
@@ -52,9 +37,9 @@
     {
       "entry": "da-vinci-clearance",
       "spec_says": "regulatory_approval (PMA), 2000-07, corroborated",
-      "this_file_says": "regulatory_clearance anchored to K002489; date contested",
-      "why": "da Vinci is absent from the openFDA PMA database and has 115 records in 510(k). The PMA query path is proven working by openfda-pma-smoke (200, 56,853 records), so the NOT_FOUND is a genuine absence. The spec row states the same clearance-vs-approval error the negative case exists to catch. The date is left contested because the 510(k) search returned 25 of 115 records in unspecified order.",
-      "source": "Fixtures openfda-pma-smoke, openfda-davinci-pma, openfda-davinci-510k."
+      "this_file_says": "regulatory_clearance 2001-03-02 anchored to K002489, corroborated",
+      "why": "Two errors in one spec row. (1) Event type: da Vinci is absent from PMA and has 115 510(k) records, so it was cleared, never approved. (2) Date: no Intuitive Surgical da Vinci decision falls in calendar 2000 at all; the earliest is 2001-03-02. The only 2000 match in the whole result set is a dental curing light from an unrelated company with 'Da Vinci' in its name.",
+      "source": "Fixtures openfda-pma-smoke, openfda-davinci-pma, openfda-davinci-510k-earliest, openfda-davinci-2000."
     },
     {
       "entry": "robodoc-2008-clearance",
@@ -246,30 +231,31 @@
         "component": "telemanipulators"
       },
       "expect": {
-        "overall": "contested",
+        "overall": "corroborated",
         "date": {
-          "status": "contested",
+          "status": "corroborated",
           "precision": "day",
           "modes": [
             {
               "value": "2001-03-02",
               "precision": "day"
-            },
-            {
-              "value": "2000-07",
-              "precision": "month"
             }
           ],
-          "note": "DISPUTED \u2014 see disputed[] for the unresolved part. Spec \u00a78 says 2000-07; the earliest clearance seen is K002489, decided 2001-03-02 and RECEIVED 2000-08-10. The received date is the likeliest origin of a '2000' in secondary sources, but it is August, not July, so it does not explain 2000-07 either. Crucially the search returned only 25 of 115 records in openFDA's default unspecified order, so an earlier record may simply not have been seen. Not resolvable from current fixtures."
+          "note": "RESOLVED. openfda-davinci-510k-earliest sorts all 115 matches ascending; its first five ARE the five earliest, and the first Intuitive Surgical record among them is K002489, decided 2001-03-02 (received 2000-08-10). Nothing from Intuitive predates it. Spec \u00a78's 2000-07 corresponds to no FDA decision for this device \u2014 see the refuted entry da-vinci-2000-07 and disputed_resolved below."
         },
         "event_type": {
           "status": "corroborated",
           "note": "CORRECTED from regulatory_approval. da Vinci is absent from the openFDA PMA database and has 115 records in 510(k). It was CLEARED, never approved \u2014 the same clearance-vs-approval error this system exists to catch, found inside its own golden set."
         },
         "conflation": {
-          "suspected": true,
-          "field": "date",
-          "note": "Received 2000-08-10 vs decided 2001-03-02: a genuine cross-year record, unlike AESOP. This is the mechanism the falsified AESOP hypothesis predicted, occurring here instead."
+          "suspected": false,
+          "note": "Received 2000-08-10, decided 2001-03-02 \u2014 a genuine cross-year record, but one event's lifecycle, not two events. Same shape as K963126, and it must not be flagged."
+        },
+        "sibling_record": {
+          "registry_id": "K011002",
+          "date": "2001-05-30",
+          "device_name": "INTUITIVE SURGICAL DA VINCI SURGICAL SYSTEM, MODEL ISI 1000",
+          "note": "A real ambiguity worth stating rather than resolving silently. K002489 is the EARLIEST Intuitive da Vinci clearance; K011002 is the one actually named 'da Vinci Surgical System'. This row anchors to K002489 because a timeline milestone means the first clearance of the line. A caller reading the row as 'when was the system called da Vinci Surgical System cleared' wants K011002."
         }
       }
     },
@@ -378,6 +364,39 @@
         },
         "same_claim_id_as": "aesop-510k-clearance"
       }
+    },
+    {
+      "id": "da-vinci-2000-07",
+      "note": "Spec \u00a78's da Vinci date. Refuted against the registry: no FDA 510(k) decision for any Intuitive Surgical da Vinci device falls in calendar 2000.",
+      "claim": {
+        "entity": "da Vinci",
+        "entity_aliases": [
+          "da Vinci Surgical System"
+        ],
+        "event_type": "regulatory_clearance",
+        "date": "2000-07",
+        "date_precision": "month",
+        "registry": "openfda_device",
+        "registry_id": "K002489",
+        "superlative": null,
+        "description": "The da Vinci Surgical System was cleared by the FDA in July 2000."
+      },
+      "expect": {
+        "overall": "refuted",
+        "date": {
+          "status": "refuted",
+          "precision": "month",
+          "note": "openfda-davinci-2000 queried every da Vinci 510(k) decision in calendar 2000 and returned exactly ONE record: K000393, 'NOVA CORDLESS CURING LIGHT', applicant 'Nova/Da Vinci Systems, Inc.' \u2014 a dental curing light, matched only because the query ORs device_name with applicant. There is no Intuitive Surgical da Vinci decision in 2000. The nearest FDA event is the 2000-08-10 RECEIPT of K002489, which is August, not July, and a receipt, not a decision."
+        },
+        "event_type": {
+          "status": "corroborated",
+          "note": "Right that it was a clearance; wrong about when."
+        },
+        "conflation": {
+          "suspected": false
+        },
+        "same_claim_id_as": "da-vinci-clearance"
+      }
     }
   ],
   "future_cases": [],
@@ -441,5 +460,53 @@
         "suspected": false
       }
     }
-  }
+  },
+  "adversarial": [
+    {
+      "id": "davinci-medical-1994-not-intuitive",
+      "note": "The trap in this data. Three unrelated companies share the name across the 115 matches: Intuitive Surgical, 'Da Vinci Medical, Inc.', and 'Nova/Da Vinci Systems, Inc.'. K935999 is the dangerous one \u2014 it is LAPAROSCOPIC, SURGICAL, named DaVinci, and from 1994, so every surface feature invites mistaking it for the origin of the da Vinci Surgical System. It is a different device from a different company, seven years earlier. Expected status is CONTESTED, not refuted: the server surfaces the ambiguity, it does not adjudicate it. A verifier that returned 'refuted' here would be guessing which company the claimant meant.",
+      "claim": {
+        "entity": "da Vinci",
+        "entity_aliases": [
+          "da Vinci Surgical System"
+        ],
+        "event_type": "regulatory_clearance",
+        "date": "1994-02-04",
+        "date_precision": "day",
+        "superlative": null,
+        "description": "A da Vinci laparoscopic surgical device received FDA 510(k) clearance in 1994."
+      },
+      "expect": {
+        "overall": "contested",
+        "date": {
+          "status": "contested",
+          "precision": "day",
+          "modes": [
+            {
+              "value": "1994-02-04",
+              "precision": "day"
+            }
+          ],
+          "note": "The claim's date is correct for K935999 \u2014 that is what makes this adversarial. Unanchored, the five candidate records carry five different dates, so the date is contested for the same reason the entity is: the server does not yet know which record is meant."
+        },
+        "entity": {
+          "status": "contested",
+          "note": "CORRECTED during Phase 6 implementation: originally expected 'refuted', which asked the server to make a judgement it cannot support. Name similarity alone cannot tell Intuitive Surgical's da Vinci from Da Vinci Medical's \u2014 'DAVINCI RECONFIGURABLE LAPAROSCOPIC SURGICAL INSTRUMENTS' matches the name perfectly. The discriminator is the applicant, and per \u00a72 the server returns every candidate with its applicant in entity_candidates and lets Claude resolve it. Contested is the honest status: several distinct entities match the name, and the server does not know which the claim means."
+        },
+        "event_type": {
+          "status": "corroborated"
+        },
+        "conflation": {
+          "suspected": true,
+          "field": "entity",
+          "note": "Three distinct applicants share the token 'DA VINCI' in one result set \u2014 the \u00a76.6 distributional signal on entity rather than date. Returned as evidence, not resolved."
+        }
+      },
+      "matching_record": {
+        "registry": "openfda_device",
+        "registry_id": "K935999",
+        "note": "Deliberately NOT set as the claim's anchor. An anchored claim names one record, so the verifier compares against that record alone and the ambiguity never surfaces as a field status. The trap is the unanchored claim."
+      }
+    }
+  ]
 }

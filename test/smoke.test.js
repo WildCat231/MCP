@@ -23,7 +23,15 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const entryPoint = path.join(repoRoot, 'dist', 'index.js');
 
-const EXPECTED_TOOLS = ['cache_status', 'check_registry', 'clear_cache', 'ping', 'search_literature'];
+const EXPECTED_TOOLS = [
+  'cache_status',
+  'check_registry',
+  'clear_cache',
+  'disconfirm_superlative',
+  'ping',
+  'search_literature',
+  'verify_claim',
+];
 
 /** Connect a client to a freshly spawned server with an isolated home. */
 async function withClient(fn) {

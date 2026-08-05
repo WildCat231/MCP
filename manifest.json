@@ -49,6 +49,14 @@
       "description": "Primary-source lookup across openFDA (both 510(k) and PMA), Crossref, Wikipedia, and PatentsView. Returns every match with explicit truncation reporting, never a chosen best match."
     },
     {
+      "name": "disconfirm_superlative",
+      "description": "Adversarial search for a superlative claim: queries the category with the entity removed and returns every rival claimant found, unranked."
+    },
+    {
+      "name": "verify_claim",
+      "description": "Verify a milestone claim against primary sources. Entity, event type and date are verified independently, registries first; superlatives trigger an adversarial search for rival claimants. Nothing is dropped for failing verification."
+    },
+    {
       "name": "cache_status",
       "description": "Diagnostics for the on-disk cache: entry counts by namespace, freshness, age distribution, and hit rate by tool. Makes no network calls."
     },

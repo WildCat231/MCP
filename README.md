@@ -8,7 +8,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**Phase 5 of 10 — `check_registry` done. All fixtures recorded; full suite green with no skips.**
+**Phase 6 of 10 — `verify_claim` done. The §10.6 gate passes; 206 tests green, no skips.**
 
 | Phase | | |
 |---|---|---|
@@ -17,11 +17,12 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 | 3 | Source adapters | done — validated against recorded fixtures |
 | 4 | `search_literature` | done |
 | 5 | `check_registry` | done |
-| 6–10 | verification, conflation, clustering, snapshots, packaging | not started |
+| 6 | `verify_claim`, independence, superlatives | done |
+| 7–10 | conflation, clustering, snapshots, packaging | not started |
 
 Snapshot storage (§4 integrity, normally Phase 9) is also implemented ahead of order, because its read semantics had to be settled against the cache's.
 
-Five tools are exposed today: `ping`, `search_literature`, `check_registry`, `cache_status`, `clear_cache`.
+Seven tools are exposed today: `ping`, `search_literature`, `check_registry`, `verify_claim`, `disconfirm_superlative`, `cache_status`, `clear_cache`.
 
 ## `search_literature`
 
@@ -42,6 +43,20 @@ Primary-source lookup across the four registries (§6.1: try this before falling
 **Every match, never a chosen one.** No best-match selection anywhere. Picking one record out of several is a judgement about which record a claim refers to, and per §2 that belongs to Claude, with all candidates visible.
 
 **Truncation is reported loudly.** `truncated`, `returned`, and `total_matches` always come back. A truncated set supports "these records exist"; it does *not* support "this is the earliest" or "there are no others", and the warning says so. This is not a hypothetical — see below.
+
+## `verify_claim`
+
+Each field — entity, event type, date — is verified **independently** (§6.2). That is the part that catches the failure whole-claim verification cannot see: the golden set's ROBODOC and da Vinci rows named a real entity on a real date under the wrong event type, and a verifier checking the claim as a unit would have passed both.
+
+**Registry first** (§6.1). For regulatory claims openFDA settles clearance-vs-approval outright, because 510(k) and PMA are separate databases.
+
+**Anchoring matters.** A claim carrying `registry_id` is verified against *that record only*. Without it, every matching record is a candidate, and their differing dates are different **events** rather than disagreement about one — reported as such, with `entity_candidates` listing each record's applicant. That distinction was a real bug during implementation: verifying an anchored ROBODOC claim against both its clearances reported a "contested date" that was really two unrelated events.
+
+**Independence** (§6.4): domain diversity weighted 0.6, tier diversity 0.4, discounted 0.6× when sources cite a common ancestor; corroboration needs ≥ 0.5 *and* a primary or peer-reviewed source. A single source scores 0 — there is nothing to be independent of — and two tertiary blogs corroborate nothing.
+
+**Superlatives** (§6.3) trigger `disconfirm_superlative`, which searches the category with the **entity removed**; searching it with the entity just rediscovers the claimant. Any rival makes the field contested, full stop — no weighing, and both sides are returned.
+
+**Conflation (§6.6) is Phase 7** and says so in the output, rather than reporting `suspected: false` as though a check had run.
 
 ## What truncation cost us
 
@@ -246,6 +261,10 @@ src/
   dates.ts              partial-date normalization with explicit precision
   search.ts             search_literature: adaptive window, dedup
   registries.ts         check_registry: all four registries, truncation reporting
+  verify/
+    verify.ts           §6 orchestration: fields verified independently
+    independence.ts     §6.4 scoring
+    superlative.ts      §6.3 adversarial disconfirmation
   cache.ts              TTL cache layer
   snapshot.ts           content-addressed snapshots, verified reads
   store.ts              atomic filesystem JSON store
@@ -267,6 +286,7 @@ test/
   sources.test.js       adapter logic, plus fixture replay
   search.test.js        adaptive window, context anchoring, dedup, failures
   registries.test.js    truncation, both openFDA databases, degradation
+  verify.test.js        independence, superlatives, the §10.6 gate, determinism
   golden.test.js        golden-set shape, incl. date_precision on every entry
   recorder.test.js      guards the recorder's raw-capture invariant
   fixtures/             recorded API responses (raw bytes + .meta.json)

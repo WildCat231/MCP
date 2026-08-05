@@ -481,31 +481,87 @@ test('fixture: da Vinci was CLEARED, not approved', async (t) => {
   }
 });
 
-test('fixture: the da Vinci result is truncated, so it cannot establish an earliest date', async (t) => {
-  // The trap this nearly walked into. 115 total, 25 returned, openFDA's
-  // default ordering unspecified — and the oldest record is not in the page.
-  // Taking the minimum of that page silently answers a different question.
+test('fixture: the unsorted da Vinci page is truncated and cannot establish an earliest', async (t) => {
+  // Kept as a standing warning. 115 total, 25 returned, unspecified order, and
+  // the oldest record absent — reading "earliest" off this page gave the wrong
+  // answer once already.
   const raw = needsFixture('openfda-davinci-510k', t);
   if (raw === undefined) return;
 
   const parsed = JSON.parse(raw);
-  const total = parsed.meta.results.total;
-  const returned = parsed.results.length;
+  assert.ok(parsed.meta.results.total > parsed.results.length, 'truncated');
+  const meta = JSON.parse(fs.readFileSync(path.join(fixturesDir, 'openfda-davinci-510k.meta.json'), 'utf8'));
+  assert.ok(!new URL(meta.url).searchParams.has('sort'), 'and unsorted, which is what makes it dangerous');
 
-  assert.ok(total > returned, `truncated: ${returned} of ${total}`);
+  // The sorted fixture disagrees with this page about the earliest record —
+  // which is the whole point.
+  const sorted = fixture('openfda-davinci-510k-earliest');
+  if (sorted === undefined) return;
+  const unsortedEarliest = parse510k(parsed).records.map((r) => r.date).sort()[0];
+  const trueEarliest = parse510k(JSON.parse(sorted)).records.map((r) => r.date).sort()[0];
+  assert.notEqual(unsortedEarliest, trueEarliest, 'the unsorted page misreports the earliest');
+});
+
+test('fixture: sorting resolves the true earliest da Vinci clearance', async (t) => {
+  const raw = needsFixture('openfda-davinci-510k-earliest', t);
+  if (raw === undefined) return;
+
+  const meta = JSON.parse(fs.readFileSync(path.join(fixturesDir, 'openfda-davinci-510k-earliest.meta.json'), 'utf8'));
+  assert.match(
+    decodeURIComponent(meta.url),
+    /sort=decision_date:asc/,
+    'the ordering claim is only valid because the query was sorted',
+  );
+
+  const { records } = parse510k(JSON.parse(raw));
+  assert.ok(records.length >= 5);
+
+  // Ascending, so these ARE the earliest overall.
+  const dates = records.map((r) => r.date);
+  assert.deepEqual([...dates].sort(), dates, 'returned in ascending order');
+
+  const intuitive = records.filter((r) => /intuitive/i.test(r.applicant ?? ''));
+  assert.ok(intuitive.length > 0, "Intuitive Surgical's records must appear");
+  assert.equal(intuitive[0].submission_number, 'K002489');
+  assert.equal(intuitive[0].decision_date, '2001-03-02');
+  assert.equal(intuitive[0].received_date, '2000-08-10');
+});
+
+test('fixture: three unrelated companies share the "DA VINCI" name', async (t) => {
+  // The reason name matching alone cannot identify an entity, and the reason
+  // check_registry surfaces distinct applicants.
+  const raw = needsFixture('openfda-davinci-510k-earliest', t);
+  if (raw === undefined) return;
+
+  const { records } = parse510k(JSON.parse(raw));
+  const applicants = new Set(records.map((r) => r.applicant));
+  assert.ok(applicants.size >= 3, `expected several applicants, saw ${[...applicants].join(' | ')}`);
+
+  // The dangerous near-miss: laparoscopic, surgical, DaVinci, 1994 — and a
+  // completely different company.
+  const k935999 = records.find((r) => r.submission_number === 'K935999');
+  assert.ok(k935999, 'the 1994 Da Vinci Medical record should be among the earliest');
+  assert.match(k935999.device_name ?? '', /LAPAROSCOPIC SURGICAL/i);
+  assert.match(k935999.applicant ?? '', /Da Vinci Medical/i);
+  assert.ok(!/intuitive/i.test(k935999.applicant ?? ''), 'not Intuitive Surgical');
+});
+
+test('fixture: no Intuitive da Vinci decision falls in calendar 2000', async (t) => {
+  // This is what refutes spec §8's 2000-07.
+  const raw = needsFixture('openfda-davinci-2000', t);
+  if (raw === undefined) return;
+
+  const parsed = JSON.parse(raw);
+  assert.equal(parsed.meta.results.total, 1, 'exactly one match in the whole of 2000');
+
+  const { records } = parse510k(parsed);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].submission_number, 'K000393');
+  assert.match(records[0].device_name ?? '', /CURING LIGHT/i, 'a dental curing light, not a surgical robot');
   assert.ok(
-    !new URL(JSON.parse(fs.readFileSync(path.join(fixturesDir, 'openfda-davinci-510k.meta.json'), 'utf8')).url)
-      .searchParams.has('sort'),
-    'and unsorted, which is what makes the truncation dangerous rather than merely partial',
+    !/intuitive/i.test(records[0].applicant ?? ''),
+    'matched only through the applicant clause of the query',
   );
-
-  // The golden set must therefore leave the date open.
-  const golden = JSON.parse(
-    fs.readFileSync(path.join(fixturesDir, '..', 'golden', 'surgical_robotics.json'), 'utf8'),
-  );
-  const dispute = golden.disputed.find((d) => d.entry === 'da-vinci-clearance');
-  assert.ok(dispute, 'the date must stay disputed while the result set is truncated');
-  assert.equal(dispute.field, 'date');
 });
 
 test('fixture: da Vinci K002489 is a genuine cross-year record', async (t) => {
