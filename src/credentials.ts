@@ -47,8 +47,29 @@ export const CREDENTIALS: Readonly<Partial<Record<RegistryName, CredentialSpec>>
   },
 };
 
-/** Why a registry is unusable right now. */
-export type DegradationReason = 'credential_rejected' | 'credential_missing_and_required';
+/**
+ * Why a registry is unusable right now.
+ *
+ * 401 and 403 are kept apart because they license different conclusions:
+ *
+ *   401 no key   The service asked us to authenticate. This is proof a
+ *                credential is required — the one status that settles the
+ *                question PatentsView leaves open.
+ *   401 + key    We authenticated and were told the credential is bad:
+ *                wrong, expired, or revoked.
+ *   403 + key    We authenticated and were refused anyway — insufficient
+ *                scope, plan, or quota. The key is real but not enough.
+ *   403 no key   Ambiguous, and the important case. It may mean a key is
+ *                required, but it equally may mean an IP block, a geo
+ *                restriction, or an exhausted anonymous quota. Telling the
+ *                user to obtain an API key here would be a guess presented as
+ *                a diagnosis, so this reason deliberately does not claim one.
+ */
+export type DegradationReason =
+  | 'credential_missing_and_required'
+  | 'credential_rejected'
+  | 'credential_insufficient'
+  | 'access_forbidden';
 
 export interface RegistryAvailability {
   registry: RegistryName;
@@ -66,13 +87,20 @@ export interface RegistryAvailability {
   note?: string;
 }
 
+interface Refusal {
+  /** 401 or 403 — the two license different conclusions, so the code is kept. */
+  status: 401 | 403;
+  detail: string;
+}
+
 /**
- * Registries observed to reject our credential state this process. Kept in
- * memory only: a key added to the environment should take effect on restart
- * without anyone having to clear a cache, and a persisted "this is broken"
- * flag would outlive the condition that caused it.
+ * Registries observed to refuse us this process. Kept in memory only: a key
+ * added to the environment should take effect on restart without anyone having
+ * to clear a cache, and a persisted "this is broken" flag would outlive the
+ * condition that caused it — especially for a 403, which is often a quota that
+ * resets.
  */
-const rejected = new Map<RegistryName, string>();
+const rejected = new Map<RegistryName, Refusal>();
 
 export function credentialFor(registry: RegistryName): CredentialSpec | undefined {
   return CREDENTIALS[registry];
@@ -94,16 +122,56 @@ export function credentialHeaders(registry: RegistryName): Record<string, string
 }
 
 /**
- * Record that the endpoint refused our credential state. Called on a 401/403,
- * which is the only evidence that actually settles whether a key is required.
+ * Record that the endpoint refused us. The status code is required, not
+ * optional: it is the whole basis for deciding what we are allowed to tell the
+ * user about why.
  */
-export function noteCredentialRejected(registry: RegistryName, detail: string): void {
-  rejected.set(registry, detail);
+export function noteCredentialRejected(registry: RegistryName, status: 401 | 403, detail: string): void {
+  rejected.set(registry, { status, detail });
 }
 
 /** Test seam; also lets a long-running process recover after a key is added. */
 export function clearCredentialRejections(): void {
   rejected.clear();
+}
+
+/**
+ * Turn a refusal into a reason and a message that claims no more than the
+ * status code supports.
+ */
+function explainRefusal(
+  registry: RegistryName,
+  spec: CredentialSpec,
+  refusal: Refusal,
+  hasKey: boolean,
+): { reason: DegradationReason; note: string } {
+  const suffix = 'Other registries were unaffected.';
+
+  if (refusal.status === 401) {
+    return hasKey
+      ? {
+          reason: 'credential_rejected',
+          note: `${registry} rejected the key in ${spec.env_var} (${refusal.detail}). The key appears to be wrong, expired, or revoked. ${suffix}`,
+        }
+      : {
+          reason: 'credential_missing_and_required',
+          // A 401 is the one status that proves the requirement, so this is
+          // the one place the instruction is stated as fact.
+          note: `${registry} requires an API key (${refusal.detail}). Set ${spec.env_var}. ${spec.how_to_obtain}. ${suffix}`,
+        };
+  }
+
+  return hasKey
+    ? {
+        reason: 'credential_insufficient',
+        note: `${registry} accepted the key in ${spec.env_var} but refused the request (${refusal.detail}). This usually means insufficient scope, plan, or quota rather than a bad key. ${suffix}`,
+      }
+    : {
+        reason: 'access_forbidden',
+        // Deliberately hedged: a 403 without a key does not establish that a
+        // key would have helped.
+        note: `${registry} refused the request (${refusal.detail}). No API key was set, so one may be required — but a 403 can equally mean an IP block, a geo restriction, or an exhausted anonymous quota. Setting ${spec.env_var} is worth trying (${spec.how_to_obtain}); if the refusal persists, the cause is not the credential. ${suffix}`,
+      };
 }
 
 export function availabilityOf(registry: RegistryName): RegistryAvailability {
@@ -117,17 +185,16 @@ export function availabilityOf(registry: RegistryName): RegistryAvailability {
   const rejection = rejected.get(registry);
 
   if (rejection !== undefined) {
+    const hasKey = value !== undefined;
+    const { reason, note } = explainRefusal(registry, spec, rejection, hasKey);
     return {
       registry,
       available: false,
-      credential: value === undefined ? 'absent' : 'supplied',
-      reason: value === undefined ? 'credential_missing_and_required' : 'credential_rejected',
+      credential: hasKey ? 'supplied' : 'absent',
+      reason,
       env_var: spec.env_var,
       how_to_obtain: spec.how_to_obtain,
-      note:
-        value === undefined
-          ? `${registry} requires an API key: ${rejection}. Set ${spec.env_var}. ${spec.how_to_obtain}. Other registries were unaffected.`
-          : `${registry} rejected the key in ${spec.env_var}: ${rejection}. Other registries were unaffected.`,
+      note,
     };
   }
 

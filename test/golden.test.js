@@ -1,0 +1,213 @@
+/**
+ * Golden-set contract (CODEX_SPEC.md §8).
+ *
+ * The verifier does not exist yet (§10.6), so these tests do not run claims
+ * through it. What they do is lock the golden set's own shape — above all that
+ * every entry states `date_precision` and that the stated precision matches
+ * the granularity of its date string.
+ *
+ * That matters before Phase 6 rather than after: precision is a claim in its
+ * own right. A verifier that pads "1985" to "1985-01-01" manufactures a
+ * disagreement no source expressed, and one that coarsens da Vinci's "2000-07"
+ * to "2000" discards information the sources carry. If the expectations
+ * themselves are sloppy about precision, neither error is detectable.
+ */
+
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+import { normalizeDate } from '../dist/dates.js';
+import { EVENT_TYPES, STATUS_SEVERITY } from '../dist/types.js';
+
+const goldenPath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'golden',
+  'surgical_robotics.json',
+);
+const golden = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
+
+const PRECISION_PATTERN = {
+  year: /^\d{4}$/,
+  month: /^\d{4}-\d{2}$/,
+  day: /^\d{4}-\d{2}-\d{2}$/,
+};
+
+const STATUSES = Object.keys(STATUS_SEVERITY);
+
+/** Every entry, including the required negative, under one iterator. */
+function allEntries() {
+  return [...golden.entries, golden.negative];
+}
+
+/** Assert a date string and its declared precision agree. */
+function assertPrecision(date, precision, label) {
+  assert.ok(precision !== undefined, `${label}: date_precision is missing`);
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(PRECISION_PATTERN, precision),
+    `${label}: "${precision}" is not a valid precision`,
+  );
+  assert.match(date, PRECISION_PATTERN[precision], `${label}: "${date}" is not ${precision} precision`);
+
+  // Cross-check against the parser the pipeline will actually use, so the
+  // fixture and the implementation cannot drift apart.
+  const parsed = normalizeDate(date);
+  assert.ok(parsed !== undefined, `${label}: "${date}" does not parse`);
+  assert.equal(parsed.precision, precision, `${label}: normalizeDate disagrees about precision`);
+  assert.equal(parsed.date, date, `${label}: normalizeDate rewrites the date`);
+}
+
+test('the golden set covers every row the spec lists, plus the negative', async () => {
+  assert.equal(golden.entries.length, 7, '§8 lists seven positive rows');
+  assert.ok(golden.negative, 'the negative case is required, not optional');
+
+  const ids = allEntries().map((e) => e.id);
+  assert.equal(new Set(ids).size, ids.length, 'entry ids must be unique');
+});
+
+test('every claim declares a date_precision that matches its date', async () => {
+  for (const entry of allEntries()) {
+    assertPrecision(entry.claim.date, entry.claim.date_precision, `claim ${entry.id}`);
+  }
+});
+
+test('every expected date declares a precision that matches its modes', async () => {
+  for (const entry of allEntries()) {
+    const expected = entry.expect.date;
+    assert.ok(expected, `${entry.id}: expect.date is required`);
+    assert.ok(expected.precision !== undefined, `${entry.id}: expect.date.precision is required`);
+
+    for (const mode of expected.modes ?? []) {
+      assertPrecision(mode, expected.precision, `${entry.id} expected mode`);
+    }
+  }
+});
+
+test('expected precision is never finer than the claim states', async () => {
+  // A verifier may legitimately coarsen (sources disagreed below year level)
+  // but must never sharpen — that would mean inventing a day nobody attested.
+  const rank = { year: 0, month: 1, day: 2 };
+  for (const entry of allEntries()) {
+    assert.ok(
+      rank[entry.expect.date.precision] <= rank[entry.claim.date_precision],
+      `${entry.id}: expected precision ${entry.expect.date.precision} is finer than the claim's ${entry.claim.date_precision}`,
+    );
+  }
+});
+
+test('da Vinci is the month-precision case and stays that way', async () => {
+  // The one entry that would silently pass if precision were ignored entirely.
+  const entry = golden.entries.find((e) => e.id === 'da-vinci-pma-approval');
+  assert.equal(entry.claim.date, '2000-07');
+  assert.equal(entry.claim.date_precision, 'month');
+  assert.equal(entry.expect.date.precision, 'month');
+  assert.deepEqual(entry.expect.date.modes, ['2000-07']);
+});
+
+test('every event_type and status is one the type system knows', async () => {
+  for (const entry of allEntries()) {
+    assert.ok(
+      EVENT_TYPES.includes(entry.claim.event_type),
+      `${entry.id}: "${entry.claim.event_type}" is not an EventType`,
+    );
+    assert.ok(STATUSES.includes(entry.expect.overall), `${entry.id}: bad overall status`);
+
+    for (const field of ['date', 'event_type', 'superlative']) {
+      const expectation = entry.expect[field];
+      if (expectation?.status !== undefined) {
+        assert.ok(STATUSES.includes(expectation.status), `${entry.id}.${field}: bad status`);
+      }
+    }
+  }
+});
+
+test('overall is the most severe field status, per §6.5', async () => {
+  for (const entry of allEntries()) {
+    const fieldStatuses = ['date', 'event_type', 'superlative']
+      .map((f) => entry.expect[f]?.status)
+      .filter((s) => s !== undefined);
+
+    const worst = fieldStatuses.reduce((a, b) => (STATUS_SEVERITY[b] > STATUS_SEVERITY[a] ? b : a));
+    assert.equal(
+      entry.expect.overall,
+      worst,
+      `${entry.id}: overall should be ${worst}, the most severe of ${fieldStatuses.join(', ')}`,
+    );
+  }
+});
+
+test('the clearance/approval distinction is exercised by distinct entries', async () => {
+  const byType = golden.entries.reduce((acc, e) => {
+    acc[e.claim.event_type] = (acc[e.claim.event_type] ?? 0) + 1;
+    return acc;
+  }, {});
+  assert.ok(byType.regulatory_clearance >= 1, 'a 510(k) clearance must be represented');
+  assert.ok(byType.regulatory_approval >= 1, 'a PMA approval must be represented');
+
+  // ROBODOC appears as both a 1992 clinical use and a 2008 approval; that pair
+  // is the whole point of the canonical test case.
+  const robodoc = golden.entries.filter((e) => e.claim.entity === 'ROBODOC');
+  assert.equal(robodoc.length, 2);
+  assert.deepEqual(
+    robodoc.map((e) => `${e.claim.event_type}:${e.claim.date}`).sort(),
+    ['first_clinical_use:1992', 'regulatory_approval:2008'],
+  );
+});
+
+test('AESOP is the bimodal date case and flags conflation', async () => {
+  const aesop = golden.entries.find((e) => e.id === 'aesop-510k-clearance');
+  assert.equal(aesop.expect.date.status, 'contested');
+  assert.deepEqual(aesop.expect.date.modes, ['1993', '1994']);
+  assert.equal(aesop.expect.conflation.suspected, true);
+  assert.equal(aesop.expect.conflation.field, 'date');
+
+  // The event type is NOT in doubt — only the date. §6.2 exists for exactly
+  // this: a claim can be right about what happened and wrong about when.
+  assert.equal(aesop.expect.event_type.status, 'corroborated');
+});
+
+test('the STAR entries must not corroborate each other', async () => {
+  const star = golden.entries.filter((e) => e.claim.entity === 'STAR');
+  assert.equal(star.length, 2);
+
+  const aliases = star.map((e) => e.claim.entity_aliases[0]);
+  assert.deepEqual(aliases.sort(), ['Smart Tissue Anastomosis Robot', 'Smart Tissue Autonomous Robot']);
+  assert.notEqual(aliases[0], aliases[1], 'the acronym is shared; the expansions are not');
+
+  for (const entry of star) {
+    assert.equal(entry.expect.conflation.suspected, false, 'these are two real events, not one merged label');
+  }
+});
+
+test('the negative case demands contested, a competing claimant, and conflation', async () => {
+  // §8: "If it returns corroborated, verification is not working and no other
+  // feature matters."
+  const negative = golden.negative;
+  assert.equal(negative.claim.entity, 'ROBODOC');
+  assert.equal(negative.claim.event_type, 'regulatory_approval');
+  assert.equal(negative.claim.date, '1992');
+  assert.equal(negative.claim.date_precision, 'year');
+  assert.equal(negative.claim.superlative, 'first FDA-approved surgical robot');
+
+  assert.equal(negative.expect.overall, 'contested');
+  assert.notEqual(negative.expect.overall, 'corroborated');
+  assert.equal(negative.expect.superlative.status, 'contested');
+  assert.equal(negative.expect.conflation.suspected, true);
+  assert.equal(negative.expect.conflation.field, 'event_type');
+
+  const aesop = negative.expect.competing_claimants.find((c) => c.entity === 'AESOP');
+  assert.ok(aesop, 'AESOP must surface as a competing claimant');
+  assert.equal(aesop.event_type, 'regulatory_clearance', 'and as a clearance, not an approval');
+  assert.equal(aesop.date_precision, 'year');
+});
+
+test('only the negative case carries a superlative', async () => {
+  // §6.3 turns any superlative into an adversarial search. The positive rows
+  // are deliberately superlative-free so they test the ordinary path.
+  for (const entry of golden.entries) {
+    assert.equal(entry.claim.superlative, null, `${entry.id} should not carry a superlative`);
+  }
+  assert.ok(golden.negative.claim.superlative);
+});

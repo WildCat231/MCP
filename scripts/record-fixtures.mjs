@@ -6,6 +6,23 @@
  * tests." This script is the "once". It is the ONLY thing in this repository
  * that is expected to touch the network, and it is never run by `npm test`.
  *
+ * ## Raw capture is the invariant
+ *
+ * What lands in test/fixtures/ is the upstream response body, byte for byte —
+ * `response.text()` written straight to disk with no re-serialization, no
+ * pretty-printing, and no trailing newline. Normalization is exactly what the
+ * fixture exists to test, so a fixture that had been through a parser would
+ * test the parser against its own output and pass no matter how wrong it was.
+ *
+ * Concretely, this script imports only URL builders (`clearanceSearchUrl`,
+ * `arxivUrl`, …), the rate limiter, and the credential headers. It must never
+ * import a `parse*` or `to*` function from src/sources/ — `test/recorder.test.js`
+ * enforces that.
+ *
+ * Error responses are recorded too, where a fixture sets `allowError`: an
+ * openFDA 404 NOT_FOUND body and whatever PatentsView says about credentials
+ * are both evidence, and both are things the adapters must handle.
+ *
  * The recorded queries are chosen to cover the golden set (§8): the AESOP
  * 510(k) and ROBODOC PMA records that the clearance-vs-approval distinction
  * turns on, plus one representative query per literature source.
@@ -22,6 +39,7 @@
  * host using the same limits as the server.
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -132,8 +150,17 @@ const limiter = new RateLimiter();
 /** Real sleep — this script is allowed to take its time; the test suite is not. */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Extension follows the payload, not the convention. arXiv returns Atom; a
+ * feed stored as `.json` misleads every tool and reader that trusts the
+ * suffix.
+ */
+function extensionFor(fixture) {
+  return fixture.accept?.includes('xml') === true ? 'xml' : 'json';
+}
+
 async function record(fixture) {
-  const file = path.join(fixturesDir, `${fixture.name}.json`);
+  const file = path.join(fixturesDir, `${fixture.name}.${extensionFor(fixture)}`);
   const meta = path.join(fixturesDir, `${fixture.name}.meta.json`);
 
   if (!force) {
@@ -175,7 +202,13 @@ async function record(fixture) {
   }
 
   await fs.mkdir(fixturesDir, { recursive: true });
-  await fs.writeFile(file, body.endsWith('\n') ? body : `${body}\n`);
+
+  // Written byte-for-byte as received: no re-serialization, no pretty-printing,
+  // not even a trailing newline. A fixture that has been through a formatter is
+  // no longer evidence of what the API actually sent, which is the only reason
+  // to record one.
+  await fs.writeFile(file, body);
+
   await fs.writeFile(
     meta,
     `${JSON.stringify(
@@ -186,6 +219,10 @@ async function record(fixture) {
         status: response.status,
         content_type: response.headers.get('content-type'),
         recorded_at: new Date().toISOString(),
+        // Byte count and digest of the file as written, so anyone can confirm
+        // the recording was never edited by hand.
+        bytes: Buffer.byteLength(body),
+        sha256: createHash('sha256').update(body).digest('hex'),
         // No request headers are stored: the PatentsView recording would
         // otherwise carry the API key into the repository.
       },
@@ -194,7 +231,7 @@ async function record(fixture) {
     )}\n`,
   );
 
-  console.log(`recorded ${fixture.name} (HTTP ${response.status}, ${body.length} bytes)`);
+  console.log(`recorded ${fixture.name} (HTTP ${response.status}, ${Buffer.byteLength(body)} bytes -> ${path.basename(file)})`);
 
   // Space out same-host requests beyond what the bucket already enforces.
   await sleep(Math.ceil(1000 / limit.refillPerSecond));

@@ -1,0 +1,225 @@
+{
+  "field": "surgical robotics",
+  "spec_reference": "CODEX_SPEC.md §8",
+  "note": "Hand-written expected answers. The pipeline is broken if it misses these. Every entry states date_precision explicitly on both the input claim and the expected verification, because precision is itself a claim: a source attesting '1985' has not attested '1985-01-01', and padding it would manufacture agreement or disagreement that no source expressed.",
+  "precision_contract": {
+    "year": "^[0-9]{4}$",
+    "month": "^[0-9]{4}-[0-9]{2}$",
+    "day": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+    "rule": "claim.date_precision and expect.date.precision must each match the granularity of their own date string. A verifier must never return a precision finer than the sources support."
+  },
+  "entries": [
+    {
+      "id": "puma-560-first-clinical-use",
+      "claim": {
+        "entity": "PUMA 560",
+        "entity_aliases": ["Programmable Universal Machine for Assembly 560", "Unimation PUMA 560"],
+        "event_type": "first_clinical_use",
+        "date": "1985",
+        "date_precision": "year",
+        "superlative": null,
+        "description": "A PUMA 560 was used to position a needle for a stereotactic neurosurgical biopsy.",
+        "component": "manipulators"
+      },
+      "expect": {
+        "overall": "corroborated",
+        "date": {
+          "status": "corroborated",
+          "precision": "year",
+          "modes": ["1985"]
+        },
+        "event_type": { "status": "corroborated" },
+        "conflation": { "suspected": false }
+      }
+    },
+    {
+      "id": "robodoc-first-clinical-use",
+      "claim": {
+        "entity": "ROBODOC",
+        "entity_aliases": ["ROBODOC Surgical Assistant", "Integrated Surgical Systems ROBODOC"],
+        "event_type": "first_clinical_use",
+        "date": "1992",
+        "date_precision": "year",
+        "superlative": null,
+        "description": "ROBODOC performed femoral canal preparation in a human total hip arthroplasty.",
+        "component": "orthopaedic systems"
+      },
+      "expect": {
+        "overall": "corroborated",
+        "date": {
+          "status": "corroborated",
+          "precision": "year",
+          "modes": ["1992"]
+        },
+        "event_type": { "status": "corroborated" },
+        "conflation": { "suspected": false }
+      }
+    },
+    {
+      "id": "aesop-510k-clearance",
+      "claim": {
+        "entity": "AESOP",
+        "entity_aliases": ["Automated Endoscopic System for Optimal Positioning"],
+        "event_type": "regulatory_clearance",
+        "date": "1993",
+        "date_precision": "year",
+        "superlative": null,
+        "description": "AESOP received FDA 510(k) clearance as an endoscope positioner.",
+        "component": "camera holders"
+      },
+      "expect": {
+        "overall": "contested",
+        "date": {
+          "status": "contested",
+          "precision": "year",
+          "modes": ["1993", "1994"],
+          "note": "Bimodal across a year boundary. The mechanism is unconfirmed — see README, 'Pending empirical checks'. One candidate is openFDA's own record, where date_received and decision_date can straddle a new year and secondary sources cite whichever they saw. Precision stays 'year' because neither mode is attested more finely."
+        },
+        "event_type": {
+          "status": "corroborated",
+          "note": "The event type is not in doubt — a 510(k) is a clearance. Only the date is contested. This is the §6.2 case that whole-claim verification cannot see."
+        },
+        "conflation": { "suspected": true, "field": "date" }
+      }
+    },
+    {
+      "id": "robodoc-pma-approval",
+      "claim": {
+        "entity": "ROBODOC",
+        "entity_aliases": ["ROBODOC Surgical System"],
+        "event_type": "regulatory_approval",
+        "date": "2008",
+        "date_precision": "year",
+        "superlative": null,
+        "description": "ROBODOC received FDA premarket approval.",
+        "component": "orthopaedic systems"
+      },
+      "expect": {
+        "overall": "corroborated",
+        "date": {
+          "status": "corroborated",
+          "precision": "year",
+          "modes": ["2008"]
+        },
+        "event_type": {
+          "status": "corroborated",
+          "note": "Must resolve to regulatory_approval, distinct from the 1992 first clinical use and from AESOP's clearance."
+        },
+        "conflation": { "suspected": false }
+      }
+    },
+    {
+      "id": "da-vinci-pma-approval",
+      "claim": {
+        "entity": "da Vinci",
+        "entity_aliases": ["da Vinci Surgical System", "Intuitive Surgical da Vinci"],
+        "event_type": "regulatory_approval",
+        "date": "2000-07",
+        "date_precision": "month",
+        "superlative": null,
+        "description": "The da Vinci Surgical System received FDA premarket approval for general laparoscopic surgery.",
+        "component": "telemanipulators"
+      },
+      "expect": {
+        "overall": "corroborated",
+        "date": {
+          "status": "corroborated",
+          "precision": "month",
+          "modes": ["2000-07"],
+          "note": "The only month-precision entry in the set. A verifier that coarsens this to '2000' has lost information the sources carry; one that reports a specific day has invented it."
+        },
+        "event_type": { "status": "corroborated" },
+        "conflation": { "suspected": false }
+      }
+    },
+    {
+      "id": "star-2016-anastomosis",
+      "claim": {
+        "entity": "STAR",
+        "entity_aliases": ["Smart Tissue Anastomosis Robot"],
+        "event_type": "publication",
+        "date": "2016",
+        "date_precision": "year",
+        "superlative": null,
+        "description": "Supervised autonomous robotic soft tissue surgery was reported in Science Translational Medicine.",
+        "component": "autonomous systems"
+      },
+      "expect": {
+        "overall": "corroborated",
+        "date": {
+          "status": "corroborated",
+          "precision": "year",
+          "modes": ["2016"]
+        },
+        "event_type": { "status": "corroborated" },
+        "conflation": {
+          "suspected": false,
+          "note": "Must NOT be conflated with the 2022 entry despite the shared acronym. If entity drift is detected across these two, it should surface on entity, not date."
+        }
+      }
+    },
+    {
+      "id": "star-2022-laparoscopic",
+      "claim": {
+        "entity": "STAR",
+        "entity_aliases": ["Smart Tissue Autonomous Robot"],
+        "event_type": "publication",
+        "date": "2022",
+        "date_precision": "year",
+        "superlative": null,
+        "description": "Autonomous laparoscopic robotic anastomosis was reported in Science Robotics.",
+        "component": "autonomous systems"
+      },
+      "expect": {
+        "overall": "corroborated",
+        "date": {
+          "status": "corroborated",
+          "precision": "year",
+          "modes": ["2022"]
+        },
+        "event_type": { "status": "corroborated" },
+        "conflation": {
+          "suspected": false,
+          "note": "'Smart Tissue Autonomous Robot' (2022) and 'Smart Tissue Anastomosis Robot' (2016) are materially different systems. §6.6 acronym drift: the alias expansions differ, which is entity drift and produces false corroboration if missed."
+        }
+      }
+    }
+  ],
+  "negative": {
+    "id": "robodoc-1992-first-fda-approved",
+    "note": "REQUIRED. If this returns corroborated, verification is not working and no other feature matters (§8).",
+    "claim": {
+      "entity": "ROBODOC",
+      "event_type": "regulatory_approval",
+      "date": "1992",
+      "date_precision": "year",
+      "superlative": "first FDA-approved surgical robot",
+      "description": "ROBODOC was the first surgical robot approved by the FDA."
+    },
+    "expect": {
+      "overall": "contested",
+      "date": {
+        "status": "contested",
+        "precision": "year",
+        "note": "1992 is ROBODOC's first clinical use, not its approval date; the PMA is 2008. The date is attached to the wrong event."
+      },
+      "superlative": {
+        "status": "contested",
+        "note": "§6.3: any competing claimant with sources makes this contested, full stop, regardless of how many sources back the original."
+      },
+      "competing_claimants": [
+        {
+          "entity": "AESOP",
+          "event_type": "regulatory_clearance",
+          "date_precision": "year",
+          "note": "Cleared via 510(k), not approved via PMA. The conflation of clearance with approval is what generates the competing 'first FDA-approved' claims."
+        }
+      ],
+      "conflation": {
+        "suspected": true,
+        "field": "event_type",
+        "note": "regulatory_clearance and regulatory_approval merged under one label across sources."
+      }
+    }
+  }
+}

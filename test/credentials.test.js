@@ -89,7 +89,9 @@ test('the credential report never leaks the key value', async () => {
   });
 });
 
-test('a 401 degrades this registry only, as a skip with a warning', async () => {
+test('401 without a key proves the requirement and says so plainly', async () => {
+  // 401 is the one status that settles PatentsView's open question, so it is
+  // the one place the instruction is stated as fact rather than hedged.
   await withEnv(undefined, async () => {
     const fetch = stubFetch(401, '{"error":"API key required"}');
     const result = await searchPatents({ text: 'surgical robot' }, {}, { fetch });
@@ -97,20 +99,78 @@ test('a 401 degrades this registry only, as a skip with a warning', async () => 
     assert.equal(result.skipped, true, 'skipped, not errored');
     assert.equal(result.error, undefined, 'a missing credential is a gap, not a failure');
     assert.ok(result.warning.includes('PATENTSVIEW_API_KEY'), 'the warning says how to fix it');
+    assert.match(result.warning, /requires an API key/);
     assert.deepEqual(result.records, []);
     assert.equal(result.availability.available, false);
     assert.equal(result.availability.reason, 'credential_missing_and_required');
   });
 });
 
-test('a 403 with a key present is reported as the key being rejected', async () => {
+test('the four refusal reasons are all distinct', async () => {
+  const seen = new Map();
+  for (const [status, key] of [
+    [401, undefined],
+    [401, 'k'],
+    [403, undefined],
+    [403, 'k'],
+  ]) {
+    await withEnv(key, async () => {
+      const result = await searchPatents({ text: 'x' }, {}, { fetch: stubFetch(status, '{}') });
+      seen.set(`${status}:${key === undefined ? 'nokey' : 'key'}`, result.availability.reason);
+    });
+  }
+
+  assert.deepEqual(Object.fromEntries(seen), {
+    '401:nokey': 'credential_missing_and_required',
+    '401:key': 'credential_rejected',
+    '403:nokey': 'access_forbidden',
+    '403:key': 'credential_insufficient',
+  });
+  assert.equal(new Set(seen.values()).size, 4, 'each combination must be separately diagnosable');
+});
+
+test('401 with a key means the key itself is bad', async () => {
   await withEnv('a-wrong-key', async () => {
-    const fetch = stubFetch(403, '{"error":"forbidden"}');
+    const fetch = stubFetch(401, '{"error":"invalid api key"}');
     const result = await searchPatents({ text: 'surgical robot' }, {}, { fetch });
 
     assert.equal(result.skipped, true);
     assert.equal(result.availability.reason, 'credential_rejected');
-    assert.ok(result.warning.includes('rejected'));
+    assert.match(result.warning, /wrong, expired, or revoked/);
+  });
+});
+
+test('403 with a key is insufficient permission, not a bad key', async () => {
+  // Authenticated and still refused: scope, plan, or quota. Telling the user
+  // their key is wrong would send them to regenerate a key that works fine.
+  await withEnv('a-valid-but-limited-key', async () => {
+    const fetch = stubFetch(403, '{"error":"quota exceeded"}');
+    const result = await searchPatents({ text: 'surgical robot' }, {}, { fetch });
+
+    assert.equal(result.skipped, true);
+    assert.equal(result.availability.reason, 'credential_insufficient');
+    assert.match(result.warning, /scope, plan, or quota/);
+    assert.ok(!/wrong, expired, or revoked/.test(result.warning), 'must not blame the key');
+  });
+});
+
+test('403 without a key does NOT claim a key is required', async () => {
+  // This is the distinction the whole 401/403 split exists for. A 403 with no
+  // credential is ambiguous — IP block, geo restriction, exhausted anonymous
+  // quota — and asserting "requires an API key" would be a guess dressed as a
+  // diagnosis.
+  await withEnv(undefined, async () => {
+    const fetch = stubFetch(403, '{"error":"forbidden"}');
+    const result = await searchPatents({ text: 'surgical robot' }, {}, { fetch });
+
+    assert.equal(result.skipped, true);
+    assert.equal(result.availability.reason, 'access_forbidden');
+    assert.ok(
+      !/requires an API key/.test(result.warning),
+      'a 403 does not establish that a key would have helped',
+    );
+    assert.match(result.warning, /IP block|geo restriction|quota/, 'the other causes are named');
+    assert.match(result.warning, /PATENTSVIEW_API_KEY/, 'trying a key is still suggested');
   });
 });
 

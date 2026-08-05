@@ -39,10 +39,16 @@ import { parseSummary } from '../dist/sources/wikipedia.js';
 
 const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
+/**
+ * Fixtures are stored under the extension matching their payload — arXiv's
+ * Atom feed is `.xml`, everything else `.json` — so look for either.
+ */
 function fixture(name) {
-  const file = path.join(fixturesDir, `${name}.json`);
-  if (!fs.existsSync(file)) return undefined;
-  return fs.readFileSync(file, 'utf8');
+  for (const ext of ['json', 'xml']) {
+    const file = path.join(fixturesDir, `${name}.${ext}`);
+    if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8');
+  }
+  return undefined;
 }
 
 /** Skip with an explanation rather than silently passing on missing fixtures. */
@@ -77,8 +83,12 @@ test('httpGet classifies failures instead of throwing', async () => {
   assert.equal(notFound.kind, 'http');
   assert.equal(notFound.status, 404);
 
-  const unauthorized = await httpGet('https://api.crossref.org/x', {}, { fetch: stubFetch(401, ''), limiter });
-  assert.equal(unauthorized.kind, 'unauthorized', '401 is a credential signal, not a generic http error');
+  // 401 and 403 are kept apart: only the first proves a credential is needed.
+  const unauthenticated = await httpGet('https://api.crossref.org/x', {}, { fetch: stubFetch(401, ''), limiter });
+  assert.equal(unauthenticated.kind, 'unauthenticated');
+
+  const forbidden = await httpGet('https://api.crossref.org/x', {}, { fetch: stubFetch(403, ''), limiter });
+  assert.equal(forbidden.kind, 'forbidden', 'a 403 can be a quota or IP block, not a missing key');
 
   const exploded = await httpGet(
     'https://api.crossref.org/x',

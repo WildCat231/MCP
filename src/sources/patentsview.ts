@@ -186,10 +186,12 @@ export async function searchPatents(
   );
 
   if (!result.ok) {
-    if (result.kind === 'unauthorized') {
-      // First hard evidence about the requirement. Record it so the next call
-      // short-circuits, and report it as a gap rather than an outage.
-      noteCredentialRejected('patentsview', `${result.error} from ${PATENTSVIEW_ENDPOINT}`);
+    if (result.kind === 'unauthenticated' || result.kind === 'forbidden') {
+      // The first hard evidence about this endpoint's requirements. Record the
+      // status, not just the fact of refusal: a 401 proves a key is needed, a
+      // 403 does not, and the message the user sees has to reflect that.
+      const status = result.kind === 'unauthenticated' ? 401 : 403;
+      noteCredentialRejected('patentsview', status, result.error);
       const updated = availabilityOf('patentsview');
       return {
         records: [],
@@ -198,8 +200,8 @@ export async function searchPatents(
         warning:
           updated.note ??
           (hasKey
-            ? 'PatentsView rejected the supplied API key; patent evidence is unavailable.'
-            : 'PatentsView requires an API key; patent evidence is unavailable.'),
+            ? 'PatentsView refused the supplied API key; patent evidence is unavailable.'
+            : 'PatentsView refused the request; patent evidence is unavailable.'),
         url,
       };
     }

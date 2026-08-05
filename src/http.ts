@@ -21,8 +21,19 @@ export type HttpFailureKind =
   | 'network'
   /** Reached the server; it returned a non-2xx. */
   | 'http'
-  /** 401/403 — surfaced separately because it is a credential signal, not an outage. */
-  | 'unauthorized';
+  /**
+   * 401. The service is asking us to authenticate. Unambiguous: a credential
+   * is required and ours is missing or invalid.
+   */
+  | 'unauthenticated'
+  /**
+   * 403. The service refused the request. NOT the same signal as 401 — a 403
+   * can mean an authenticated caller lacks permission, but it can equally mean
+   * a quota ban, an IP block, or a geo restriction, none of which a key fixes.
+   * Keeping it distinct stops the server telling a rate-limited user to go get
+   * an API key.
+   */
+  | 'forbidden';
 
 export type HttpResult =
   | { ok: true; status: number; body: string; url: string }
@@ -86,9 +97,14 @@ export async function httpGet(url: string, options: HttpOptions = {}, deps: Http
     if (response.status === 401 || response.status === 403) {
       return {
         ok: false,
-        kind: 'unauthorized',
+        kind: response.status === 401 ? 'unauthenticated' : 'forbidden',
         status: response.status,
-        error: `${response.status} ${response.statusText || 'Unauthorized'}`,
+        // The body often carries the actual reason ("quota exceeded" vs "API
+        // key required"), which is the difference between an actionable
+        // instruction and a misleading one.
+        error: `${response.status} ${response.statusText || (response.status === 401 ? 'Unauthorized' : 'Forbidden')}${
+          body === '' ? '' : `: ${body.slice(0, 200)}`
+        }`,
         url,
       };
     }

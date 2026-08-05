@@ -35,6 +35,10 @@ npm test                         # the six skips become real assertions
 
 Expect the recordings to correct some field mappings. That is what they are for — the parse functions are pure, so a fixture is enough to confirm or fix one without touching the network again.
 
+**What gets recorded is the raw upstream response**, byte for byte: `response.text()` written straight to disk, with no re-serialization, no pretty-printing, and no added trailing newline. The recorder imports only URL builders, the rate limiter, and the credential headers — never a `parse*` or `to*` function. That constraint is not a convention but a correctness requirement: a fixture that had passed through a parser would test that parser against its own output and pass regardless of how wrong the field mapping was. `test/recorder.test.js` enforces it statically.
+
+Each recording is paired with a `.meta.json` carrying the request URL, HTTP status, content type, byte count, and a SHA-256 of the recorded bytes, so a hand-edited fixture is detectable. No request headers are stored — otherwise the PatentsView recording would carry an API key into the repository. Files take the extension of their payload, so arXiv's Atom feed is `.xml` rather than `.json`. Error responses are recorded too where a fixture opts in: an openFDA 404 `NOT_FOUND` body and whatever PatentsView says about credentials are both evidence the adapters must handle.
+
 ## Unverified assumptions
 
 Claims this codebase makes that have **not** been checked against reality, collected here rather than left implicit in comments:
@@ -66,9 +70,22 @@ Three registries are keyless. PatentsView may not be, and the code does not assu
 |---|---|
 | `PATENTSVIEW_API_KEY` set | Sent as `X-Api-Key` |
 | Not set | Request attempted anyway — the endpoint may be open |
-| `401`/`403` returned | That registry is skipped with a `warning`; the observation is recorded so it is not retried this process |
+| Refused | That registry is skipped with a `warning`; the observation is recorded so it is not retried this process |
 
 A missing key **shrinks** a multi-registry lookup rather than failing it, and a skip is never reported as "no patents found". Adding the key and restarting recovers — the refusal is held in memory only, never persisted. Key values never appear in tool output.
+
+### 401 and 403 mean different things
+
+The two statuses license different conclusions, so they produce different reasons and different wording:
+
+| Status | Key set? | Reason | What the user is told |
+|---|---|---|---|
+| 401 | no | `credential_missing_and_required` | A key **is** required. Stated as fact — this is the one status that proves it. |
+| 401 | yes | `credential_rejected` | The key is wrong, expired, or revoked. |
+| 403 | yes | `credential_insufficient` | The key authenticated but was refused: scope, plan, or quota. Not a bad key. |
+| 403 | no | `access_forbidden` | **Hedged.** A key may help, but a 403 can equally be an IP block, a geo restriction, or an exhausted anonymous quota. |
+
+The last row is the reason for the split. Collapsing 401 and 403 would have the server tell a rate-limited or IP-blocked user to go obtain an API key — a guess presented as a diagnosis, for a problem no key fixes. `HttpFailureKind` carries `unauthenticated` and `forbidden` separately for the same reason, and the response body is included in the error string because it usually says which case applies.
 
 ## Requirements
 
@@ -165,8 +182,19 @@ test/
   credentials.test.js   degradation when a key is missing or refused
   dates.test.js         partial dates, precision, source-specific formats
   sources.test.js       adapter logic, plus fixture replay (currently skipped)
-  fixtures/  golden/    recorded API responses and hand-written expected answers
+  golden.test.js        golden-set shape, incl. date_precision on every entry
+  recorder.test.js      guards the recorder's raw-capture invariant
+  fixtures/             recorded API responses (raw bytes + .meta.json)
+  golden/               hand-written expected answers
 ```
+
+## The golden set
+
+`test/golden/surgical_robotics.json` holds the §8 expected answers: seven positive rows plus the required ROBODOC negative. Every entry states `date_precision` explicitly, on both the input claim and the expected verification, and `test/golden.test.js` checks that each declared precision matches the granularity of its own date string — cross-checked against the same `normalizeDate` the pipeline uses, so the fixture and the implementation cannot drift apart.
+
+Precision is tracked this strictly because it is itself a claim. A verifier that pads `1985` to `1985-01-01` manufactures a disagreement no source expressed; one that coarsens da Vinci's `2000-07` to `2000` discards information the sources do carry. `da-vinci-pma-approval` is the only month-precision row, and it exists partly as the case that would pass silently if precision were ignored. A separate test asserts expected precision is never *finer* than the claim's — coarsening is legitimate when sources disagree, sharpening is invention.
+
+The verifier does not exist yet (§10.6), so these tests lock the contract rather than exercise it. They also encode the relationships the spec calls load-bearing: AESOP's date is bimodal while its event type is not (§6.2), the two STAR entries must not corroborate each other despite the shared acronym (§6.6), and the negative case must return `contested` with AESOP as a competing clearance-not-approval claimant.
 
 ## Deviations from `CODEX_SPEC.md`
 
