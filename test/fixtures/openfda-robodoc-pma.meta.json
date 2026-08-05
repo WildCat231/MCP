@@ -1,0 +1,10 @@
+{
+  "name": "openfda-robodoc-pma",
+  "note": "ROBODOC PMA. Previously 404. With the controls above, a 404 here becomes evidence of absence rather than an unexplained failure.",
+  "url": "https://api.fda.gov/device/pma.json?limit=10&search=(trade_name:\"ROBODOC\"+OR+applicant:\"ROBODOC\")",
+  "status": 404,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T22:49:45.659Z",
+  "bytes": 80,
+  "sha256": "57b1e7534d003e4246182162fd2469cdf038de39405056f44fc006715e5496da"
+}

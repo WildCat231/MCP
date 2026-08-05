@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "disclaimer": "Do not rely on openFDA to make decisions regarding medical care. While we make every effort to ensure that data is accurate, you should assume all results are unvalidated. We may limit or otherwise restrict your access to the API in line with our Terms of Service.",
+    "terms": "https://open.fda.gov/terms/",
+    "license": "https://open.fda.gov/license/",
+    "last_updated": "2026-07-27",
+    "results": {
+      "skip": 0,
+      "limit": 25,
+      "total": 2
+    }
+  },
+  "results": [
+    {
+      "third_party_flag": "N",
+      "city": "Sacremento",
+      "advisory_committee_description": "Neurology",
+      "address_1": "1433 N. Market Blvd., #1",
+      "address_2": "",
+      "statement_or_summary": "Summary",
+      "product_code": "OJP",
+      "openfda": {
+        "device_name": "Orthopedic Computer Controlled Surgical System",
+        "medical_specialty_description": "Neurology",
+        "regulation_number": "882.4560",
+        "device_class": "2",
+        "registration_number": [
+          "1828464",
+          "3003477135",
+          "3005061536"
+        ],
+        "fei_number": [
+          "1828464",
+          "3003477135",
+          "3005061536"
+        ]
+      },
+      "zip_code": "95834",
+      "applicant": "Integrated Surgical Systems, Inc.",
+      "decision_date": "2008-08-06",
+      "decision_code": "SESE",
+      "country_code": "US",
+      "device_name": "DIGIMATCH ROBODOC SURGICAL SYSTEM",
+      "advisory_committee": "NE",
+      "contact": "RUSS  HIBBERT",
+      "expedited_review_flag": "",
+      "k_number": "K072629",
+      "state": "CA",
+      "date_received": "2007-09-17",
+      "review_advisory_committee": "OR",
+      "postal_code": "95834",
+      "decision_description": "Substantially Equivalent",
+      "clearance_type": "Traditional"
+    },
+    {
+      "third_party_flag": "N",
+      "city": "Melrose",
+      "advisory_committee_description": "Neurology",
+      "address_1": "32 Harrison St.",
+      "address_2": "",
+      "statement_or_summary": "Summary",
+      "product_code": "OJP",
+      "openfda": {
+        "device_name": "Orthopedic Computer Controlled Surgical System",
+        "medical_specialty_description": "Neurology",
+        "regulation_number": "882.4560",
+        "device_class": "2",
+        "registration_number": [
+          "1828464",
+          "3003477135",
+          "3005061536"
+        ],
+        "fei_number": [
+          "1828464",
+          "3003477135",
+          "3005061536"
+        ]
+      },
+      "zip_code": "02176",
+      "applicant": "Curexo Technology Corporation",
+      "decision_date": "2014-05-27",
+      "decision_code": "SESE",
+      "country_code": "US",
+      "device_name": "DIGIMATCH ORTHODOC ROBODOC ENCORE SURGICAL SYSTEM",
+      "advisory_committee": "NE",
+      "contact": "GLEN  EMELOCK",
+      "expedited_review_flag": "",
+      "k_number": "K140038",
+      "state": "MA",
+      "date_received": "2014-01-07",
+      "review_advisory_committee": "OR",
+      "postal_code": "02176",
+      "decision_description": "Substantially Equivalent",
+      "clearance_type": "Traditional"
+    }
+  ]
+}

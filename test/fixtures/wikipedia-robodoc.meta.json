@@ -1,0 +1,10 @@
+{
+  "name": "wikipedia-robodoc",
+  "note": "Entity aliases and redirect resolution. Sentence case, per Wikipedia title convention. If this 404s, use the title from wikipedia-robodoc-search.",
+  "url": "https://en.wikipedia.org/api/rest_v1/page/summary/Robodoc",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8; profile=\"https://www.mediawiki.org/wiki/Specs/Summary/1.5.0\"",
+  "recorded_at": "2026-08-05T22:49:47.908Z",
+  "bytes": 1645,
+  "sha256": "cd94b1ee616ce38adc3704d2a4d886c79da02e22c0e694e929f4bbd76bc5c2dc"
+}

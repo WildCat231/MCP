@@ -1,0 +1,10 @@
+{
+  "name": "wikipedia-robodoc-search",
+  "note": "Resolves the real article title for ROBODOC regardless of casing. Record this first; it tells you what wikipedia-robodoc should ask for.",
+  "url": "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=ROBODOC+surgical+robot&srlimit=5&format=json&origin=*",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T22:49:47.663Z",
+  "bytes": 581,
+  "sha256": "47a44513e448bce4dc27b292d715bdb3e4d6216857e880417e2238064e9960ac"
+}

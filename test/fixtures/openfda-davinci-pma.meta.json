@@ -1,0 +1,10 @@
+{
+  "name": "openfda-davinci-pma",
+  "note": "da Vinci PMA, spec §8 expects regulatory_approval 2000-07. Previously 404. If absent here but present in 510k below, the golden row states the wrong event type.",
+  "url": "https://api.fda.gov/device/pma.json?limit=10&search=(trade_name:\"DA VINCI\"+OR+applicant:\"DA VINCI\")",
+  "status": 404,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T22:49:46.137Z",
+  "bytes": 80,
+  "sha256": "57b1e7534d003e4246182162fd2469cdf038de39405056f44fc006715e5496da"
+}

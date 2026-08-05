@@ -1,0 +1,10 @@
+{
+  "name": "openfda-robodoc-510k",
+  "note": "DECISIVE: ROBODOC in the 510(k) database. A 2008 clearance here means the golden ROBODOC PMA row mislabels a clearance as an approval.",
+  "url": "https://api.fda.gov/device/510k.json?limit=25&search=(device_name:\"ROBODOC\"+OR+applicant:\"ROBODOC\")",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T22:49:47.126Z",
+  "bytes": 3122,
+  "sha256": "e3b08f2534fcb2e253d46dff80f8d99278d75bfffba4f9e6e8d8877889975c4c"
+}

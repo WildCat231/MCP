@@ -1,0 +1,10 @@
+{
+  "name": "openfda-pma-syntax-control",
+  "note": "CONTROL: PMA search over a date range matching everything. Proves search syntax on the PMA endpoint independently of any device name.",
+  "url": "https://api.fda.gov/device/pma.json?limit=5&search=decision_date:[19760101+TO+20301231]",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T22:49:45.246Z",
+  "bytes": 10714,
+  "sha256": "9242882b610c276ff6fd15f1c9b1d9714aa7463dbc1161a0d47072ae089f46c0"
+}

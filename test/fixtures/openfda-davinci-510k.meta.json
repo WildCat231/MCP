@@ -1,0 +1,10 @@
+{
+  "name": "openfda-davinci-510k",
+  "note": "DECISIVE: da Vinci in the 510(k) database. A 2000-07 clearance here means spec §8 mislabels a clearance as an approval.",
+  "url": "https://api.fda.gov/device/510k.json?limit=25&search=(device_name:\"DA VINCI\"+OR+applicant:\"DA VINCI\")",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T22:49:46.668Z",
+  "bytes": 197463,
+  "sha256": "d679287eb86a16162210440bab8fb496dd2a31dc36a6699e3a99b101d5b2de84"
+}

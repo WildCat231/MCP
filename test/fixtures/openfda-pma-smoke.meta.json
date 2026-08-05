@@ -1,0 +1,10 @@
+{
+  "name": "openfda-pma-smoke",
+  "note": "CONTROL: PMA endpoint with no search clause. Proves the endpoint works before any PMA absence is believed.",
+  "url": "https://api.fda.gov/device/pma.json?limit=5",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T22:49:44.826Z",
+  "bytes": 10714,
+  "sha256": "36a4be432a7bf896d57ea00943141a263eff7d1bdba59461a7ed5ee012daced4"
+}
