@@ -3,3 +3,4 @@ dist/
 *.mcpb
 *.tsbuildinfo
 .DS_Store
+build/

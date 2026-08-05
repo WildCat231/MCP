@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "pretest": "npm run build",
     "test": "node --test \"test/**/*.test.js\"",
-    "record-fixtures": "node scripts/record-fixtures.mjs"
+    "record-fixtures": "node scripts/record-fixtures.mjs",
+    "bundle": "node scripts/build-bundle.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

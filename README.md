@@ -8,7 +8,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**Phase 9 of 10 — snapshots audited and exposed. 250 tests green, no skips.**
+**All 10 phases complete. 254 tests green, no skips.**
 
 | Phase | | |
 |---|---|---|
@@ -21,7 +21,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 | 7 | Conflation detection (§6.6) | done |
 | 8 | `cluster_frontier` | done |
 | 9 | Snapshots (§5, §10.9) | done |
-| 10 | `.mcpb` packaging | not started |
+| 10 | `.mcpb` packaging | done — **client install needs your machine** |
 
 Snapshot storage was built during Phase 3, because its read semantics had to be settled against the cache's; Phase 9 audited it against §5 and §10.9 and exposed the three tools, which had never been registered.
 
@@ -213,6 +213,29 @@ The last row is the reason for the split. Collapsing 401 and 403 would have the 
 ## Requirements
 
 Node.js 18 or newer. No other prerequisites — no Python, no API keys, no native modules, no model downloads. The dependency tree is pure JavaScript, so the same bundle runs on macOS, Windows, and Linux.
+
+## Packaging
+
+```sh
+npm run bundle        # -> build/frontier.mcpb
+```
+
+The bundle stages a clean tree rather than packing the working directory: manifest, compiled `dist/`, a `package.json` trimmed to production dependencies, and the production dependency closure read from `npm ls --omit=dev` — so it stays correct as dependencies change instead of being an ignore list that rots. Packing the repo directly ships TypeScript (18 MB) and the fixtures: **31 MB unpacked, versus 10.5 MB staged (3.3 MB packed).**
+
+Four tests verify the archive itself, running the server from the **extracted bundle** rather than the repo — which is the only way to catch a missing dependency, since the repo has every devDependency installed alongside. They confirm the manifest's `entry_point` resolves, no devDependencies or sources ship, and every tool the manifest advertises answers over stdio. They skip with instructions when `build/frontier.mcpb` is absent.
+
+### What still needs a real client
+
+The sandbox has no desktop and no network, so these are unverified:
+
+| | Why it needs your machine |
+|---|---|
+| **Installing the `.mcpb`** | §10.10's "install locally from the file". Everything up to the install is tested; the install itself is not. |
+| **`${user_config.home}` substitution** | The client substitutes this into `FRONTIER_HOME`. If left blank it may arrive as an empty string or be omitted — `paths.ts` treats both as "use the default", but that path has never run under a real client. |
+| **Windows and macOS** | `compatibility.platforms` claims all three and the tree has no native modules, but only Linux has run. `${__dirname}` substitution is client-side. |
+| **The client's Node runtime** | The manifest requires `>=18`. Claude Desktop bundles its own. |
+| **Every network-bound tool** | `search_literature`, `check_registry`, `verify_claim`, `disconfirm_superlative` are tested against recorded fixtures and stubs only. No tool in this repo has ever made a live call except the fixture recorder. |
+| **PatentsView credentials** | Still unverified — the host was never reached. |
 
 ## Build and test
 
