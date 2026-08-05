@@ -1,0 +1,10 @@
+{
+  "name": "openfda-k963126-cross-year",
+  "note": "The cross-year control: received 1996, decided 1997. One record whose dates really do straddle a year boundary, so the verifier must report the decision date WITHOUT flagging conflation. Promotes golden future_cases.cross-year-fda-processing to an asserted entry.",
+  "url": "https://api.fda.gov/device/510k.json?limit=1&search=k_number:\"K963126\"",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T18:32:41.921Z",
+  "bytes": 27244,
+  "sha256": "3e78cf3ad454541a9cde06aba0f5f34012d7b1f1652e799b9205fc213426dd25"
+}

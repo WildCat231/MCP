@@ -1,0 +1,100 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/xr1SLgUP9vYbFGsARyyy1wKSUBk</id>
+  <title>arXiv Query: search_query=all:"surgical robotics" AND all:"autonomous suturing"&amp;id_list=&amp;start=0&amp;max_results=10</title>
+  <updated>2026-08-05T18:32:45Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:%22surgical+robotics%22+AND+all:%22autonomous+suturing%22&amp;start=0&amp;max_results=10&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>10</opensearch:itemsPerPage>
+  <opensearch:totalResults>4</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2607.27494v1</id>
+    <title>Simulation of Surgical Suturing Using Position-Based Dynamics and the Material Point Method for Robot Reinforcement Learning</title>
+    <updated>2026-07-29T22:20:34Z</updated>
+    <link href="https://arxiv.org/abs/2607.27494v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2607.27494v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Recent advances in robotics research have created a strong demand for high-performance simulators. Surgical robotics simulation faces unique challenges due to the need to model diverse objects, such as rigid instruments, soft tissue, and fluids. While many studies simulate sutures or soft tissue independently, only a few have considered the complete soft-tissue suturing scenario, including the contact between sutures and deformable tissue during suture insertion. Building on previous work, this paper presents a novel suturing simulation environment using sutures modelled by position-based dynamics (PBD) and soft bodies modelled by the material point method (MPM) while considering two-way contact with frictional and drag forces. We introduce a contact coupling method between the PBD suture and the MPM soft tissue, enabling visually plausible suture-tissue interactions. The simulator is optimized for GPU execution with parallel scenes using multiple CUDA streams, and we present a Reinforcement Learning (RL) environment for autonomous suturing sub-tasks, including needle insertion, driving, and extraction. Using ML-Agents, RL agents trained in the simulator show stable learning and achieve 80% and 68% success rates in needle insertion and extraction, respectively, under the strictest distance threshold.</summary>
+    <category term="cs.RO" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-07-29T22:20:34Z</published>
+    <arxiv:comment>7 pages, 9 figures, accepted for the IEEE RAS/EMBS 11th International Conference on Biomedical Robotics and Biomechatronics (BioRob 2026)</arxiv:comment>
+    <arxiv:primary_category term="cs.RO"/>
+    <author>
+      <name>Tleukhan Mussin</name>
+    </author>
+    <author>
+      <name>Yafei Ou</name>
+    </author>
+    <author>
+      <name>Mahdi Tavakoli</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2210.11973v1</id>
+    <title>Real-Time Constrained 6D Object-Pose Tracking of An In-Hand Suture Needle for Minimally Invasive Robotic Surgery</title>
+    <updated>2022-10-21T14:02:10Z</updated>
+    <link href="https://arxiv.org/abs/2210.11973v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2210.11973v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Autonomous suturing has been a long-sought-after goal for surgical robotics. Outside of staged environments, accurate localization of suture needles is a critical foundation for automating various suture needle manipulation tasks in the real world. When localizing a needle held by a gripper, previous work usually tracks them separately without considering their relationship. Because of the significant errors that can arise in the stereo-triangulation of objects and instruments, their reconstructions may often not be consistent. This can lead to unrealistic tool-needle grasp reconstructions that are infeasible. Instead, an obvious strategy to improve localization would be to leverage constraints that arise from contact, thereby constraining reconstructions of objects and instruments into a jointly feasible space. In this work, we consider feasible grasping constraints when tracking the 6D pose of an in-hand suture needle. We propose a reparameterization trick to define a new state space for describing a needle pose, where grasp constraints can be easily defined and satisfied. Our proposed state space and feasible grasping constraints are then incorporated into Bayesian filters for real-time needle localization. In the experiments, we show that our constrained methods outperform previous unconstrained/constrained tracking approaches and demonstrate the importance of incorporating feasible grasping constraints into automating suture needle manipulation tasks.</summary>
+    <category term="cs.RO" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-10-21T14:02:10Z</published>
+    <arxiv:primary_category term="cs.RO"/>
+    <author>
+      <name>Zih-Yun Chiu</name>
+    </author>
+    <author>
+      <name>Florian Richter</name>
+    </author>
+    <author>
+      <name>Michael C. Yip</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2210.01406v2</id>
+    <title>Open-source High-precision Autonomous Suturing Framework With Visual Guidance</title>
+    <updated>2024-05-28T08:44:35Z</updated>
+    <link href="https://arxiv.org/abs/2210.01406v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2210.01406v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Autonomous surgery has attracted increasing attention for revolutionizing robotic patient care, yet remains a distant and challenging goal. In this paper, we propose an image-based framework for high-precision autonomous suturing operation. We first build an algebraic geometric algorithm to achieve accurate needle pose estimation, then design the corresponding keypoint-based calibration network for joint-offset compensation, and further plan and control suture trajectory. Our solution ranked first among all competitors in the AccelNet Surgical Robotics Challenge. Videos and codes can be found in https://sites.google.com/view/accel-2022-cuhk.</summary>
+    <category term="cs.RO" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-10-04T06:26:37Z</published>
+    <arxiv:primary_category term="cs.RO"/>
+    <arxiv:journal_ref>IROS 2022 Workshop on "A Panacea Or An Alchemy? Benefits And Risks Of Robot Learning In Medical Applications"</arxiv:journal_ref>
+    <author>
+      <name>Hongbin Lin</name>
+    </author>
+    <author>
+      <name>Bin Li</name>
+    </author>
+    <author>
+      <name>Yunhui Liu</name>
+    </author>
+    <author>
+      <name>Kwok Wai Samuel Au</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2209.13657v3</id>
+    <title>Suture Thread Spline Reconstruction from Endoscopic Images for Robotic Surgery with Reliability-driven Keypoint Detection</title>
+    <updated>2023-02-28T22:42:12Z</updated>
+    <link href="https://arxiv.org/abs/2209.13657v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2209.13657v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Automating the process of manipulating and delivering sutures during robotic surgery is a prominent problem at the frontier of surgical robotics, as automating this task can significantly reduce surgeons' fatigue during tele-operated surgery and allow them to spend more time addressing higher-level clinical decision making. Accomplishing autonomous suturing and suture manipulation in the real world requires accurate suture thread localization and reconstruction, the process of creating a 3D shape representation of suture thread from 2D stereo camera surgical image pairs. This is a very challenging problem due to how limited pixel information is available for the threads, as well as their sensitivity to lighting and specular reflection. We present a suture thread reconstruction work that uses reliable keypoints and a Minimum Variation Spline (MVS) smoothing optimization to construct a 3D centerline from a segmented surgical image pair. This method is comparable to previous suture thread reconstruction works, with the possible benefit of increased accuracy of grasping point estimation. Our code and datasets will be available at: https://github.com/ucsdarclab/thread-reconstruction.</summary>
+    <category term="cs.RO" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-09-27T19:48:20Z</published>
+    <arxiv:comment>To be published in ICRA 2023</arxiv:comment>
+    <arxiv:primary_category term="cs.RO"/>
+    <author>
+      <name>Neelay Joglekar</name>
+    </author>
+    <author>
+      <name>Fei Liu</name>
+    </author>
+    <author>
+      <name>Ryan Orosco</name>
+    </author>
+    <author>
+      <name>Michael Yip</name>
+    </author>
+  </entry>
+</feed>

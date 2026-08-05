@@ -1,0 +1,10 @@
+{
+  "name": "wikipedia-disambiguation",
+  "note": "An ambiguous entity — must be recognizable as a disambiguation page (§8 adversarial inputs).",
+  "url": "https://en.wikipedia.org/api/rest_v1/page/summary/Mercury",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8; profile=\"https://www.mediawiki.org/wiki/Specs/Summary/1.5.0\"",
+  "recorded_at": "2026-08-05T18:32:49.637Z",
+  "bytes": 1462,
+  "sha256": "64ba654ec754b92f9421b341947f6a936bacbdd44b7ec53a29efdb8bda15abdf"
+}

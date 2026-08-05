@@ -1,0 +1,10 @@
+{
+  "name": "crossref-star-2016",
+  "note": "STAR supervised autonomous anastomosis, Sci Transl Med 2016 (golden set).",
+  "url": "https://api.crossref.org/works/10.1126%2Fscitranslmed.aad9398",
+  "status": 200,
+  "content_type": "application/json",
+  "recorded_at": "2026-08-05T18:32:44.098Z",
+  "bytes": 10832,
+  "sha256": "d353169501d9b36f68da603288787709b2a23e92be344517caaf58f5b153b0b1"
+}

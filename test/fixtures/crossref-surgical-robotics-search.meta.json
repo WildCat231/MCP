@@ -1,0 +1,10 @@
+{
+  "name": "crossref-surgical-robotics-search",
+  "note": "Representative multi-term literature search.",
+  "url": "https://api.crossref.org/works?query=surgical+robotics+autonomous&rows=10&sort=issued&order=desc&mailto=frontier-mcp%40users.noreply.github.com",
+  "status": 200,
+  "content_type": "application/json",
+  "recorded_at": "2026-08-05T18:32:44.662Z",
+  "bytes": 61207,
+  "sha256": "830fc0c09319bfd3a088aaa3efe3b5f7e5e24d4aaf92fa293505b312f3bedb52"
+}

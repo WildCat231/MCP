@@ -1,0 +1,10 @@
+{
+  "name": "arxiv-surgical-robotics",
+  "note": "Representative Atom feed — the only XML response in the set.",
+  "url": "https://export.arxiv.org/api/query?search_query=all%3A%22surgical+robotics%22+AND+all%3A%22autonomous+suturing%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending",
+  "status": 200,
+  "content_type": "application/atom+xml; charset=utf-8",
+  "recorded_at": "2026-08-05T18:32:45.228Z",
+  "bytes": 9172,
+  "sha256": "1f9e2754b34fea0b771b3920cbecad56d2794e41ddfe73735b85297d13515593"
+}

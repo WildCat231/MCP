@@ -1,0 +1,10 @@
+{
+  "name": "openfda-k931783",
+  "note": "AESOP K931783 by exact K number. The golden set asserts received 1993-04-09 and decision 1993-11-22 — both in 1993, which is what falsified the cross-year hypothesis. This fixture is the evidence for that assertion.",
+  "url": "https://api.fda.gov/device/510k.json?limit=1&search=k_number:\"K931783\"",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T18:32:41.491Z",
+  "bytes": 27283,
+  "sha256": "9ba7ed94ab4fe7a23661bf49983cc5910198b157a6ae4427b485e9d058918cdf"
+}

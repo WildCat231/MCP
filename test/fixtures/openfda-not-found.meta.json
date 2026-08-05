@@ -1,0 +1,10 @@
+{
+  "name": "openfda-not-found",
+  "note": "A query with no matches — openFDA answers 404 with a NOT_FOUND body, not an empty list.",
+  "url": "https://api.fda.gov/device/510k.json?limit=5&search=(device_name:\"zzzzznotadevicezzzzz\"+OR+applicant:\"zzzzznotadevicezzzzz\")",
+  "status": 404,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T18:32:43.676Z",
+  "bytes": 80,
+  "sha256": "57b1e7534d003e4246182162fd2469cdf038de39405056f44fc006715e5496da"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "pubmed-esummary-star",
+  "note": "esummary step. PMIDs are pinned so the fixture stays stable across re-records.",
+  "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=27306664%2C35171654&retmode=json&tool=frontier-mcp",
+  "status": 200,
+  "content_type": "application/json; charset=UTF-8",
+  "recorded_at": "2026-08-05T18:32:48.842Z",
+  "bytes": 5425,
+  "sha256": "ebb6fa809e867c5945b6aff72f3e83dde07152046272effce743f516390028a4"
+}

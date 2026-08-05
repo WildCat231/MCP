@@ -1,0 +1,10 @@
+{
+  "name": "pubmed-esearch-star",
+  "note": "esearch step: PMIDs only.",
+  "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=%22smart+tissue+autonomous+robot%22&retmax=10&retmode=json&sort=date&tool=frontier-mcp",
+  "status": 200,
+  "content_type": "application/json; charset=UTF-8",
+  "recorded_at": "2026-08-05T18:32:48.421Z",
+  "bytes": 420,
+  "sha256": "54211a06ba543c38c61c4b1839c5d004712a592f5b4e62d8a7ea8f638bc0d09c"
+}

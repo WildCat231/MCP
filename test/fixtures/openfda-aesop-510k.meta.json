@@ -1,0 +1,10 @@
+{
+  "name": "openfda-aesop-510k",
+  "note": "AESOP by device name — all matches, to see K931783 alongside its siblings.",
+  "url": "https://api.fda.gov/device/510k.json?limit=10&search=(device_name:\"AESOP\"+OR+applicant:\"AESOP\")",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T18:32:42.332Z",
+  "bytes": 134210,
+  "sha256": "a6ac310484516ede5ec74582c821cecddcf2b4544b952822d3d65ec131b62411"
+}

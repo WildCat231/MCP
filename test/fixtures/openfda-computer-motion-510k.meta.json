@@ -1,0 +1,10 @@
+{
+  "name": "openfda-computer-motion-510k",
+  "note": "All Computer Motion clearances, to see AESOP in the context of its siblings.",
+  "url": "https://api.fda.gov/device/510k.json?limit=25&search=(device_name:\"COMPUTER MOTION\"+OR+applicant:\"COMPUTER MOTION\")",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "recorded_at": "2026-08-05T18:32:42.916Z",
+  "bytes": 551073,
+  "sha256": "e4f697f612e425efc1d78b70b31b9b2a044306883f238ee5a23c093464ced6ae"
+}
