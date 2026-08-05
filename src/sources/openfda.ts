@@ -10,6 +10,15 @@
  * records, `searchApprovals` hits /pma.json and only ever produces PMA
  * records. Nothing here can turn one into the other.
  *
+ * **All matches are returned, never a best one.** No adapter in this server
+ * picks a single record out of several. A device family often has many
+ * clearances — Computer Motion filed several for AESOP alone — and silently
+ * returning the first would produce exactly the false certainty the verifier
+ * exists to detect, while hiding the sibling records that would have shown the
+ * caller there was a choice to make. Selecting among candidates is a judgement
+ * about which record a claim refers to, and per §2 that judgement belongs to
+ * Claude, with all the candidates in front of it.
+ *
  * NOTE: written from openFDA's published field reference, NOT validated
  * against a live response — see README, "Unverified assumptions". In
  * particular openFDA has served `decision_date` in both `YYYYMMDD` and
@@ -184,6 +193,24 @@ export function clearanceSearchUrl(query: OpenFdaQuery): string {
 export function approvalSearchUrl(query: OpenFdaQuery): string {
   const base = buildUrl(OPENFDA_PMA_ENDPOINT, { limit: query.limit ?? 25 });
   return `${base}&search=${searchExpression(query, 'trade_name')}`;
+}
+
+/**
+ * Look a clearance up by its K number directly.
+ *
+ * Distinct from `clearanceSearchUrl` because a K number is an exact
+ * identifier, not a search term: once a claim carries `registry_id`, that is
+ * the canonical anchor (see `src/claim.ts`) and resolving it must not go back
+ * through fuzzy device-name matching.
+ */
+export function clearanceByNumberUrl(kNumber: string): string {
+  const base = buildUrl(OPENFDA_510K_ENDPOINT, { limit: 1 });
+  return `${base}&search=k_number:${quote(kNumber.trim().toUpperCase())}`;
+}
+
+export function approvalByNumberUrl(pmaNumber: string): string {
+  const base = buildUrl(OPENFDA_PMA_ENDPOINT, { limit: 25 });
+  return `${base}&search=pma_number:${quote(pmaNumber.trim().toUpperCase())}`;
 }
 
 export async function searchClearances(

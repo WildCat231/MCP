@@ -19,7 +19,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { claimId, claimIdBasis } from '../dist/claim.js';
 import { normalizeDate } from '../dist/dates.js';
+import { REGISTRY_NAMES } from '../dist/types.js';
 import { EVENT_TYPES, STATUS_SEVERITY } from '../dist/types.js';
 
 const goldenPath = path.resolve(
@@ -37,9 +39,9 @@ const PRECISION_PATTERN = {
 
 const STATUSES = Object.keys(STATUS_SEVERITY);
 
-/** Every entry, including the required negative, under one iterator. */
+/** Every asserted entry: the positives, the refuted set, and the negative. */
 function allEntries() {
-  return [...golden.entries, golden.negative];
+  return [...golden.entries, ...golden.refuted, golden.negative];
 }
 
 /** Assert a date string and its declared precision agree. */
@@ -156,16 +158,104 @@ test('the clearance/approval distinction is exercised by distinct entries', asyn
   );
 });
 
-test('AESOP is the bimodal date case and flags conflation', async () => {
+test('AESOP resolves to the primary record, not to a bimodal date', async () => {
+  // The spec predicted "contested (date bimodal), 1993–1994". K931783 shows
+  // received 1993-04-09 and decided 1993-11-22 — both in 1993 — so there is no
+  // bimodal distribution. §6.1 registry-first is exactly this: the primary
+  // record outranks the secondary-source disagreement.
   const aesop = golden.entries.find((e) => e.id === 'aesop-510k-clearance');
-  assert.equal(aesop.expect.date.status, 'contested');
-  assert.deepEqual(aesop.expect.date.modes, ['1993', '1994']);
-  assert.equal(aesop.expect.conflation.suspected, true);
-  assert.equal(aesop.expect.conflation.field, 'date');
+  assert.equal(aesop.claim.registry_id, 'K931783');
+  assert.equal(aesop.claim.registry, 'openfda_device');
+  assert.equal(aesop.claim.date, '1993-11-22');
+  assert.equal(aesop.claim.date_precision, 'day');
 
-  // The event type is NOT in doubt — only the date. §6.2 exists for exactly
-  // this: a claim can be right about what happened and wrong about when.
+  assert.equal(aesop.expect.date.status, 'corroborated');
+  assert.deepEqual(aesop.expect.date.modes, ['1993-11-22']);
+  assert.equal(aesop.expect.conflation.suspected, false, 'no conflation to detect');
   assert.equal(aesop.expect.event_type.status, 'corroborated');
+});
+
+test('the deviation from spec §8 is recorded rather than silently applied', async () => {
+  // The spec is the contract; departing from it on evidence is legitimate,
+  // departing from it quietly is not.
+  const deviation = golden.deviations_from_spec.find((d) => d.entry === 'aesop-510k-clearance');
+  assert.ok(deviation, 'the AESOP change must be declared');
+  assert.match(deviation.spec_says, /contested/);
+  assert.match(deviation.this_file_says, /corroborated/);
+  assert.match(deviation.why, /K931783/);
+  assert.ok(deviation.source, 'the evidence must be attributed');
+});
+
+test('the 1994 AESOP claim is refuted, not merely unverified', async () => {
+  // §4 distinguishes them: "unverified" is nothing found, "refuted" is sources
+  // actively contradicting. K931783's dates contradict 1994 outright.
+  const refuted = golden.refuted.find((e) => e.id === 'aesop-510k-clearance-1994');
+  assert.ok(refuted, 'the refuted variant is required');
+  assert.equal(refuted.claim.date, '1994');
+  assert.equal(refuted.expect.overall, 'refuted');
+  assert.equal(refuted.expect.date.status, 'refuted');
+  assert.notEqual(refuted.expect.date.status, 'unverified');
+
+  // Right about what happened, wrong about when.
+  assert.equal(refuted.expect.event_type.status, 'corroborated');
+  assert.equal(refuted.expect.conflation.suspected, false);
+});
+
+test('refuted is exercised at least once — it is the most severe status', async () => {
+  const statuses = allEntries().map((e) => e.expect.overall);
+  assert.ok(statuses.includes('refuted'), 'a golden set with no refuted case cannot detect a false claim');
+});
+
+test('the two AESOP claims share a claim id because they share a record', async () => {
+  // The point of the registry anchor: one event with a disputed date, not two
+  // events. A verifier that splits them renders one clearance twice.
+  const correct = golden.entries.find((e) => e.id === 'aesop-510k-clearance').claim;
+  const wrong = golden.refuted.find((e) => e.id === 'aesop-510k-clearance-1994').claim;
+
+  assert.notEqual(correct.date, wrong.date, 'the dates differ');
+  assert.equal(claimId(correct), claimId(wrong), 'yet they are the same event');
+  assert.equal(claimIdBasis(correct), 'registry_anchor');
+
+  // Stated in the file too, so the expectation is visible without running this.
+  const declared = golden.refuted.find((e) => e.id === 'aesop-510k-clearance-1994').expect.same_claim_id_as;
+  assert.equal(declared, 'aesop-510k-clearance');
+});
+
+test('unanchored claims still fall back to the §4 entity+date rule', async () => {
+  const puma = golden.entries.find((e) => e.id === 'puma-560-first-clinical-use').claim;
+  assert.equal(puma.registry_id, undefined, 'no primary record resolved for this one');
+  assert.equal(claimIdBasis(puma), 'entity_date');
+
+  // And under that rule the date DOES distinguish, as §4 specifies.
+  assert.notEqual(claimId(puma), claimId({ ...puma, date: '1986' }));
+});
+
+test('any entry with a registry_id names a real registry', async () => {
+  for (const entry of allEntries()) {
+    const { registry, registry_id: recordId } = entry.claim;
+    if (recordId === undefined && registry === undefined) continue;
+    assert.ok(recordId, `${entry.id}: registry without registry_id`);
+    assert.ok(registry, `${entry.id}: registry_id without a registry — not an identifier`);
+    assert.ok(REGISTRY_NAMES.includes(registry), `${entry.id}: "${registry}" is not a registry`);
+  }
+});
+
+test('the cross-year case is reserved but not yet asserted', async () => {
+  // K963126 is the control the AESOP hypothesis was mistaken for: a single
+  // record whose received and decision dates really do straddle a year.
+  const future = golden.future_cases.find((c) => c.id === 'cross-year-fda-processing');
+  assert.ok(future, 'the cross-year case must be recorded for later');
+  assert.equal(future.status, 'not_yet_asserted');
+  assert.equal(future.registry_id, 'K963126');
+  assert.equal(future.expect.received_year, 1996);
+  assert.equal(future.expect.decision_year, 1997);
+  assert.notEqual(future.expect.received_year, future.expect.decision_year, 'that is the point of it');
+
+  // Crucially it must NOT expect conflation: two dates on one record are one
+  // event's lifecycle. A discriminator firing here would fire on most of
+  // openFDA.
+  assert.equal(future.expect.conflation.suspected, false);
+  assert.ok(future.blocked_on, 'unverified values must say so');
 });
 
 test('the STAR entries must not corroborate each other', async () => {

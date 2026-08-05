@@ -145,9 +145,24 @@ export function parseCrossrefSearch(json: unknown): { papers: Paper[]; total?: n
   return { papers, ...(typeof total === 'number' ? { total } : {}) };
 }
 
-export function parseCrossrefWork(json: unknown): CrossrefRecord | undefined {
+/**
+ * All records in a Crossref response, as an array.
+ *
+ * A DOI lookup resolves to at most one work, but the shape stays plural on
+ * purpose: every registry lookup in this server returns *all* matches, and a
+ * caller that has to remember which registries return one and which return
+ * many will eventually take `[0]` from the wrong one.
+ */
+export function parseCrossrefWork(json: unknown): CrossrefRecord[] {
   const envelope = json as CrossrefEnvelope;
-  return envelope.message === undefined ? undefined : toRegistryRecord(envelope.message);
+  // A /works/{doi} response carries the work directly on `message`; a search
+  // response carries `message.items`.
+  if (Array.isArray(envelope.message?.items)) {
+    return envelope.message.items.map(toRegistryRecord).filter((r): r is CrossrefRecord => r !== undefined);
+  }
+  if (envelope.message === undefined) return [];
+  const record = toRegistryRecord(envelope.message);
+  return record === undefined ? [] : [record];
 }
 
 export interface CrossrefQuery {
@@ -194,10 +209,12 @@ export async function lookupDoi(
   doi: string,
   options: HttpOptions = {},
   deps: HttpDeps = {},
-): Promise<{ record?: CrossrefRecord; error?: string; url: string }> {
+): Promise<{ records: CrossrefRecord[]; error?: string; url: string }> {
   const url = crossrefDoiUrl(doi);
   const result = await httpGetJson<unknown>(url, options, deps);
-  if (!result.ok) return { error: result.error, url };
-  const record = parseCrossrefWork(result.value);
-  return { ...(record === undefined ? {} : { record }), url };
+  // An unregistered DOI is an answer, not a fault.
+  if (!result.ok) {
+    return result.status === 404 ? { records: [], url } : { records: [], error: result.error, url };
+  }
+  return { records: parseCrossrefWork(result.value), url };
 }

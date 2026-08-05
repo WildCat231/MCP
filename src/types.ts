@@ -47,7 +47,10 @@ export const EVENT_TYPES: readonly EventType[] = [
 export type DatePrecision = 'year' | 'month' | 'day';
 
 export interface Claim {
-  /** sha256 of normalized entity + event_type + date. */
+  /**
+   * sha256. Derived — see `claimId` in `src/claim.ts` for how, and why the
+   * derivation changes once `registry_id` is resolved.
+   */
   id: string;
   /** e.g. "AESOP". */
   entity: string;
@@ -63,6 +66,31 @@ export interface Claim {
   description: string;
   /** Which decomposed component of the field this claim belongs to. */
   component?: string;
+
+  /**
+   * The primary record this claim is about, once one has been found —
+   * a K number, PMA number, DOI, or patent number.
+   *
+   * **This is the canonical anchor.** Entity name and date are how a claim
+   * starts life, because that is all a secondary source gives you, but both
+   * are fuzzy: names drift ("Smart Tissue Anastomosis" vs "Autonomous" Robot)
+   * and dates are exactly what is in dispute. A registry id is neither. Once
+   * resolved it identifies the claim, and `date` becomes an assertion *about*
+   * that record rather than part of what picks it out.
+   *
+   * The consequence that matters: two claims citing the same record and event
+   * type are the same claim even when they state different dates. "AESOP was
+   * cleared in 1993" and "AESOP was cleared in 1994" are one event with a
+   * disputed date, not two events — and a timeline that renders them as two
+   * nodes has already lost.
+   */
+  registry_id?: string;
+  /**
+   * Which registry `registry_id` belongs to. Required alongside it: "K931783"
+   * is only meaningful as an openFDA identifier, and a bare string would let a
+   * patent number and a DOI collide in the identity hash.
+   */
+  registry?: RegistryName;
 }
 
 // ---------------------------------------------------------------------------

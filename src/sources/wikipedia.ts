@@ -40,6 +40,18 @@ interface SearchResponse {
   };
 }
 
+/**
+ * All records from a summary response, as an array — zero or one.
+ *
+ * Plural for the same reason as every other registry lookup: callers should
+ * never have to remember which registries return one match and which return
+ * many. A disambiguation page yields zero, which is the honest answer.
+ */
+export function parseSummaryRecords(json: unknown): WikipediaRecord[] {
+  const record = parseSummary(json);
+  return record === undefined ? [] : [record];
+}
+
 export function parseSummary(json: unknown): WikipediaRecord | undefined {
   const response = json as SummaryResponse;
   const pageId = response.pageid;
@@ -99,15 +111,14 @@ export async function lookupPage(
   title: string,
   options: HttpOptions = {},
   deps: HttpDeps = {},
-): Promise<{ record?: WikipediaRecord; error?: string; url: string }> {
+): Promise<{ records: WikipediaRecord[]; error?: string; url: string }> {
   const url = summaryUrl(title);
   const result = await httpGetJson<unknown>(url, options, deps);
   if (!result.ok) {
     // A missing article is an answer, not a fault.
-    return result.status === 404 ? { url } : { error: result.error, url };
+    return result.status === 404 ? { records: [], url } : { records: [], error: result.error, url };
   }
-  const record = parseSummary(result.value);
-  return { ...(record === undefined ? {} : { record }), url };
+  return { records: parseSummaryRecords(result.value), url };
 }
 
 export async function searchPages(

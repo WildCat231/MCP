@@ -49,6 +49,8 @@ test('the recorder imports only URL builders and transport helpers', async () =>
     'esummaryUrl',
     'clearanceSearchUrl',
     'approvalSearchUrl',
+    'clearanceByNumberUrl',
+    'approvalByNumberUrl',
     'summaryUrl',
     'patentsviewUrl',
     // Transport and politeness.

@@ -2,6 +2,15 @@
   "field": "surgical robotics",
   "spec_reference": "CODEX_SPEC.md §8",
   "note": "Hand-written expected answers. The pipeline is broken if it misses these. Every entry states date_precision explicitly on both the input claim and the expected verification, because precision is itself a claim: a source attesting '1985' has not attested '1985-01-01', and padding it would manufacture agreement or disagreement that no source expressed.",
+  "deviations_from_spec": [
+    {
+      "entry": "aesop-510k-clearance",
+      "spec_says": "contested (date bimodal), 1993–1994",
+      "this_file_says": "corroborated, 1993-11-22, day precision",
+      "why": "The primary record settles it. K931783 was received 1993-04-09 and decided 1993-11-22 — both within 1993, so there is no bimodal distribution to detect. The spec's expectation encoded the secondary-source confusion, which is real; the registry outranks it, which is the whole point of §6.1 'registry first'. The 1994 variant moves to the refuted set rather than becoming a second mode.",
+      "source": "openFDA record K931783, reported by the maintainer. Not yet independently recorded in test/fixtures/ — see future_cases.blocked_on for the same caveat applied to K963126."
+    }
+  ],
   "precision_contract": {
     "year": "^[0-9]{4}$",
     "month": "^[0-9]{4}-[0-9]{2}$",
@@ -61,25 +70,30 @@
         "entity": "AESOP",
         "entity_aliases": ["Automated Endoscopic System for Optimal Positioning"],
         "event_type": "regulatory_clearance",
-        "date": "1993",
-        "date_precision": "year",
+        "date": "1993-11-22",
+        "date_precision": "day",
+        "registry": "openfda_device",
+        "registry_id": "K931783",
         "superlative": null,
         "description": "AESOP received FDA 510(k) clearance as an endoscope positioner.",
         "component": "camera holders"
       },
       "expect": {
-        "overall": "contested",
+        "overall": "corroborated",
         "date": {
-          "status": "contested",
-          "precision": "year",
-          "modes": ["1993", "1994"],
-          "note": "Bimodal across a year boundary. The mechanism is unconfirmed — see README, 'Pending empirical checks'. One candidate is openFDA's own record, where date_received and decision_date can straddle a new year and secondary sources cite whichever they saw. Precision stays 'year' because neither mode is attested more finely."
+          "status": "corroborated",
+          "precision": "day",
+          "modes": ["1993-11-22"],
+          "note": "DEVIATES FROM SPEC §8, which predicts 'contested (date bimodal)' across 1993–1994. The primary record settles it: K931783 was received 1993-04-09 and decided 1993-11-22, both within 1993. The secondary-source disagreement is real, but the registry outranks it — which is what §6.1 'registry first' is for. Day precision because the record states a day."
         },
         "event_type": {
           "status": "corroborated",
-          "note": "The event type is not in doubt — a 510(k) is a clearance. Only the date is contested. This is the §6.2 case that whole-claim verification cannot see."
+          "note": "A 510(k) is a clearance, definitively (§6.1). Unaffected by the date finding, and still the counterweight to the ROBODOC 'first FDA-approved' superlative in the negative case."
         },
-        "conflation": { "suspected": true, "field": "date" }
+        "conflation": {
+          "suspected": false,
+          "note": "No date conflation. The 1994 variant is not a second mode of a bimodal distribution — it is simply wrong, and is covered as a refuted case below."
+        }
       }
     },
     {
@@ -183,6 +197,56 @@
           "note": "'Smart Tissue Autonomous Robot' (2022) and 'Smart Tissue Anastomosis Robot' (2016) are materially different systems. §6.6 acronym drift: the alias expansions differ, which is entity drift and produces false corroboration if missed."
         }
       }
+    }
+  ],
+  "refuted": [
+    {
+      "id": "aesop-510k-clearance-1994",
+      "note": "The same event as aesop-510k-clearance, dated wrongly. Because both carry registry_id K931783 they derive the SAME claim id — one event with a disputed date, not two events. A verifier that treats them as separate claims will render one clearance twice on the timeline.",
+      "claim": {
+        "entity": "AESOP",
+        "entity_aliases": ["Automated Endoscopic System for Optimal Positioning"],
+        "event_type": "regulatory_clearance",
+        "date": "1994",
+        "date_precision": "year",
+        "registry": "openfda_device",
+        "registry_id": "K931783",
+        "superlative": null,
+        "description": "AESOP received FDA 510(k) clearance in 1994."
+      },
+      "expect": {
+        "overall": "refuted",
+        "date": {
+          "status": "refuted",
+          "precision": "year",
+          "note": "Not merely unsupported — actively contradicted. K931783's decision date is 1993-11-22, and no part of its lifecycle falls in 1994; the received date is 1993-04-09. This is the distinction between 'refuted' and 'unverified' (§4), and the only golden entry exercising it."
+        },
+        "event_type": {
+          "status": "corroborated",
+          "note": "Right about what happened, wrong about when — the §6.2 case, in its cleanest form."
+        },
+        "conflation": {
+          "suspected": false,
+          "note": "One record, one event. Nothing has been merged; a date is simply wrong."
+        },
+        "same_claim_id_as": "aesop-510k-clearance"
+      }
+    }
+  ],
+  "future_cases": [
+    {
+      "id": "cross-year-fda-processing",
+      "status": "not_yet_asserted",
+      "note": "Reserved for the cross-year processing case that the AESOP hypothesis was wrongly thought to be. K963126 was received in 1996 and decided in 1997, so a single openFDA record genuinely does straddle a year boundary here. It is the control: the verifier must report the decision date without flagging conflation, because two dates on one record are one event's lifecycle, not two events merged. A discriminator that fires on this would fire across most of the openFDA database.",
+      "registry": "openfda_device",
+      "registry_id": "K963126",
+      "expect": {
+        "received_year": 1996,
+        "decision_year": 1997,
+        "date_from": "decision_date",
+        "conflation": { "suspected": false }
+      },
+      "blocked_on": "Field values unverified — recorded from a report, not from a response this repository has seen. Record the openfda-k963126-cross-year fixture before promoting this to an asserted entry."
     }
   ],
   "negative": {

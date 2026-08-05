@@ -48,19 +48,41 @@ Claims this codebase makes that have **not** been checked against reality, colle
 | Every adapter's field mapping (arXiv, PubMed, Crossref, openFDA, Wikipedia, PatentsView) | From published docs; never validated | `npm run record-fixtures`, then `npm test` |
 | PatentsView requires an `X-Api-Key` | **Unknown.** Legacy `api.patentsview.org` was open; the current Search API documents the header | Handled at runtime — see below |
 | openFDA date formats (`YYYYMMDD` vs `YYYY-MM-DD`) | Both accepted defensively | `openfda-aesop-510k` fixture |
-| AESOP's 510(k) received and decision dates | **Unknown** — could not be queried | See "Pending empirical checks" |
+| AESOP's 510(k) dates | **Reported, not yet recorded here** — K931783: received 1993-04-09, decision 1993-11-22 | `openfda-k931783` fixture |
+| K963126's dates | **Reported, not yet recorded here** — received 1996, decided 1997 | `openfda-k963126-cross-year` fixture |
 
-## Pending empirical checks
+## The AESOP cross-year hypothesis was falsified
 
-**The AESOP date span.** The golden set (§8) expects AESOP's 510(k) to come back `contested` with a bimodal date across 1993–1994. One plausible mechanical origin is openFDA's own record: FDA receives a submission one year and decides the next, and secondary sources cite whichever date they saw. If that gap is real and spans the year boundary, then a *single* primary record contains both modes, and the conflation discriminator (§6.6) should be able to fire on one record rather than requiring ≥2 sources per mode.
+The earlier working hypothesis was that AESOP's disputed 1993/1994 clearance date came from openFDA's own record — FDA receiving a submission one year and deciding the next, with secondary sources citing whichever date they saw. If true, a *single* primary record would contain both modes, and the §6.6 conflation discriminator could have fired on one record instead of requiring ≥2 sources per mode.
 
-That change has **not** been made. The openFDA query that would establish it returns `403` from this environment's egress proxy, and the discriminator itself does not exist yet (§10.7). The decision rule, for whoever runs the query:
+**It is false.** K931783 was received 1993-04-09 and decided 1993-11-22 — both within 1993. There is no year boundary in that record to explain anything, and **the single-record check was not added**. It would have fired on ordinary FDA processing time across most of the openFDA database.
 
-- Record `openfda-aesop-510k` and read `date_received` and `decision_date`.
-- **If** they fall in different calendar years spanning 1993–1994 → add a single-record check to the conflation discriminator: one registry record whose received and decision dates straddle a year boundary is itself sufficient evidence of a date mode split, without a second source. Update `test/golden/surgical_robotics.json` so the AESOP row's expected bimodality cites the record rather than the source count.
-- **If** they do not → change nothing. The 1993/1994 split has some other origin, and a single-record rule would fire on ordinary FDA processing time across the whole database.
+Three consequences, all now in the golden set:
 
-Both dates are already preserved separately on `OpenFdaDeviceRecord` precisely so this stays answerable.
+1. **AESOP's clearance is `corroborated` at `1993-11-22`, day precision**, anchored to K931783. This *deviates from spec §8*, which predicts `contested (date bimodal)`. The deviation is declared in `deviations_from_spec` inside the golden file rather than applied quietly. The spec encoded the secondary-source confusion, which is real; the primary record outranks it, which is exactly what §6.1 "registry first" is for.
+2. **The 1994 variant became a `refuted` case** rather than a second mode — actively contradicted by the record, not merely unsupported. It is the only golden entry exercising `refuted`, the most severe status.
+3. **K963126 is reserved as the cross-year control** in `future_cases`: received 1996, decided 1997, a record whose dates genuinely do straddle a year. The verifier must report the decision date *without* flagging conflation, because two dates on one record are one event's lifecycle. It is promoted to an asserted entry once its fixture is recorded.
+
+Both openFDA dates remain preserved separately on `OpenFdaDeviceRecord`, which is what made the hypothesis testable in the first place.
+
+## Claim identity: the registry anchor
+
+`Claim` carries optional `registry_id` and `registry`. Once resolved, that pair — not the entity name and date — identifies the claim:
+
+```
+anchored:    sha256("anchor|<registry>:<record_id>|<event_type>")   date excluded
+unanchored:  sha256("claim|<entity>|<event_type>|<date>")           the §4 rule
+```
+
+The §4 rule is right for a claim as it arrives, when a sentence from a secondary source is all you have. It is wrong once a primary record has been found, and AESOP is why: under the §4 rule, "cleared in 1993" and "cleared in 1994" are two different claims with two different ids, and nothing in the data model says they concern the same event — so a timeline can render both and be internally consistent while showing one clearance twice.
+
+Anchoring collapses them into one claim with a disputed date, which is where §6.2 can act on it. The date is deliberately excluded from the anchored hash; including it would reintroduce the split the anchor exists to prevent. `registry` is required alongside `registry_id` because `"K931783"` is only meaningful as an openFDA identifier, and a bare string would let a patent number and a DOI collide.
+
+## Registry lookups return every match
+
+No adapter picks a best match. A device family often has several clearances, and silently returning the first produces exactly the false certainty the verifier exists to detect, while hiding the siblings that would have shown the caller there was a choice to make. Choosing among candidates is a judgement about which record a claim refers to, and per §2 that judgement belongs to Claude, with all the candidates in front of it.
+
+Every registry lookup is therefore plural, including the ones that can only ever return zero or one (`lookupDoi`, `lookupPage`) — a caller who has to remember which registries return one and which return many will eventually take `[0]` from the wrong one. Exact-identifier lookups (`clearanceByNumberUrl`, `approvalByNumberUrl`) are kept separate from fuzzy name searches, so resolving a `registry_id` never falls back to device-name matching.
 
 ## Credentials
 
@@ -194,7 +216,9 @@ test/
 
 Precision is tracked this strictly because it is itself a claim. A verifier that pads `1985` to `1985-01-01` manufactures a disagreement no source expressed; one that coarsens da Vinci's `2000-07` to `2000` discards information the sources do carry. `da-vinci-pma-approval` is the only month-precision row, and it exists partly as the case that would pass silently if precision were ignored. A separate test asserts expected precision is never *finer* than the claim's — coarsening is legitimate when sources disagree, sharpening is invention.
 
-The verifier does not exist yet (§10.6), so these tests lock the contract rather than exercise it. They also encode the relationships the spec calls load-bearing: AESOP's date is bimodal while its event type is not (§6.2), the two STAR entries must not corroborate each other despite the shared acronym (§6.6), and the negative case must return `contested` with AESOP as a competing clearance-not-approval claimant.
+The verifier does not exist yet (§10.6), so these tests lock the contract rather than exercise it. They also encode the relationships the spec calls load-bearing: the 1993 and 1994 AESOP claims derive the *same* claim id because they cite the same record (§6.2 — one event, disputed date), the two STAR entries must not corroborate each other despite the shared acronym (§6.6), and the negative case must return `contested` with AESOP as a competing clearance-not-approval claimant. The AESOP date finding did not weaken that last one: the conflation there is on event type, which the registry settles independently of any date.
+
+The file has four sections — `entries` (the seven §8 positives), `refuted`, `negative` (required), and `future_cases` (reserved, explicitly `not_yet_asserted` with a `blocked_on` note, so unverified values can be recorded without masquerading as assertions).
 
 ## Deviations from `CODEX_SPEC.md`
 

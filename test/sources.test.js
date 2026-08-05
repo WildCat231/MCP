@@ -28,6 +28,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { FakeClock } from '../dist/clock.js';
+import { yearOf } from '../dist/dates.js';
 import { httpGet } from '../dist/http.js';
 import { RateLimiter } from '../dist/ratelimit.js';
 import { registryEventType } from '../dist/registry.js';
@@ -35,7 +36,7 @@ import { arxivIdFromUrl, buildArxivQuery, parseArxivAtom } from '../dist/sources
 import { crossrefSearchUrl, parseCrossrefSearch, parseCrossrefWork } from '../dist/sources/crossref.js';
 import { isOriginalPma, parse510k, parsePma, searchClearances } from '../dist/sources/openfda.js';
 import { buildPubmedTerm, parseESearch, parseESummary } from '../dist/sources/pubmed.js';
-import { parseSummary } from '../dist/sources/wikipedia.js';
+import { parseSummary, parseSummaryRecords } from '../dist/sources/wikipedia.js';
 
 const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -258,7 +259,10 @@ test('Crossref items normalize, preferring the earliest publication date', async
 });
 
 test('a Crossref work becomes a primary record typed by work type', async () => {
-  const record = parseCrossrefWork({
+  // Returns an array even for a single-DOI lookup: every registry lookup in
+  // this server returns all matches, so callers never have to remember which
+  // ones return one and which return many.
+  const records = parseCrossrefWork({
     message: {
       DOI: '10.1126/scitranslmed.aad9398',
       title: ['Supervised autonomous robotic soft tissue surgery'],
@@ -267,14 +271,57 @@ test('a Crossref work becomes a primary record typed by work type', async () => 
       author: [],
     },
   });
-  assert.equal(record.registry, 'crossref');
-  assert.equal(record.work_type, 'journal-article');
-  assert.equal(registryEventType(record).confidence, 'definitive');
+  assert.ok(Array.isArray(records));
+  assert.equal(records.length, 1);
+  assert.equal(records[0].registry, 'crossref');
+  assert.equal(records[0].work_type, 'journal-article');
+  assert.equal(registryEventType(records[0]).confidence, 'definitive');
 
   const preprint = parseCrossrefWork({
     message: { DOI: '10.0/x', title: ['A preprint'], type: 'posted-content', author: [] },
   });
-  assert.equal(registryEventType(preprint).confidence, 'inferred');
+  assert.equal(registryEventType(preprint[0]).confidence, 'inferred');
+
+  assert.deepEqual(parseCrossrefWork({}), [], 'an empty response is an empty list, not undefined');
+});
+
+test('registry lookups return every match, never a chosen one', async () => {
+  // A device family often has several clearances. Returning the first would
+  // hide the siblings that show the caller there was a choice to make, and
+  // choosing among them is Claude's judgement, not the server's (§2).
+  const { records } = parse510k({
+    meta: { results: { total: 3 } },
+    results: [
+      { k_number: 'K931783', device_name: 'AESOP', decision_date: '1993-11-22', date_received: '1993-04-09' },
+      { k_number: 'K952230', device_name: 'AESOP 1000', decision_date: '1995-10-13' },
+      { k_number: 'K963126', device_name: 'AESOP 2000', decision_date: '1997-02-10', date_received: '1996-08-05' },
+    ],
+  });
+  assert.equal(records.length, 3, 'all three, in response order');
+  assert.deepEqual(records.map((r) => r.submission_number), ['K931783', 'K952230', 'K963126']);
+
+  // Crossref search results likewise come back whole.
+  const works = parseCrossrefWork({
+    message: {
+      items: [
+        { DOI: '10.0/a', title: ['A'], type: 'journal-article', author: [] },
+        { DOI: '10.0/b', title: ['B'], type: 'journal-article', author: [] },
+      ],
+    },
+  });
+  assert.equal(works.length, 2);
+});
+
+test('a Wikipedia lookup is plural too, and empty for a disambiguation page', async () => {
+  assert.equal(
+    parseSummaryRecords({ type: 'disambiguation', pageid: 1, title: 'Mercury' }).length,
+    0,
+    'an ambiguous entity resolves to nothing, honestly',
+  );
+  assert.equal(
+    parseSummaryRecords({ type: 'standard', pageid: 2, title: 'ROBODOC', titles: { canonical: 'ROBODOC' } }).length,
+    1,
+  );
 });
 
 test('Crossref search URLs carry date filters and a contact address', async () => {
@@ -343,6 +390,52 @@ test('a Wikipedia disambiguation page yields no record', async () => {
 // ---------------------------------------------------------------------------
 // Fixture replay — the only tests that can confirm the field names are right
 // ---------------------------------------------------------------------------
+
+test('fixture: K931783 confirms the AESOP dates the golden set asserts', async (t) => {
+  // The golden set records received 1993-04-09 / decision 1993-11-22 on the
+  // maintainer's report. This is the check that turns that into evidence.
+  const raw = needsFixture('openfda-k931783', t);
+  if (raw === undefined) return;
+
+  const { records, error } = parse510k(JSON.parse(raw));
+  assert.equal(error, undefined);
+  assert.equal(records.length, 1, 'an exact K number resolves to one record');
+
+  const record = records[0];
+  assert.equal(record.submission_number, 'K931783');
+  assert.equal(record.submission_type, '510k');
+  assert.equal(record.decision_date, '1993-11-22');
+  assert.equal(record.received_date, '1993-04-09');
+  assert.equal(record.date, '1993-11-22', '`date` carries the decision date');
+  assert.equal(record.date_precision, 'day');
+
+  // The finding that falsified the cross-year hypothesis.
+  assert.equal(
+    yearOf(record.received_date),
+    yearOf(record.decision_date),
+    'both dates fall in 1993 — there is no year boundary here to explain a bimodal date',
+  );
+});
+
+test('fixture: K963126 is the genuine cross-year case', async (t) => {
+  const raw = needsFixture('openfda-k963126-cross-year', t);
+  if (raw === undefined) return;
+
+  const { records } = parse510k(JSON.parse(raw));
+  assert.equal(records.length, 1);
+
+  const record = records[0];
+  assert.equal(record.submission_number, 'K963126');
+  assert.equal(yearOf(record.received_date), 1996);
+  assert.equal(yearOf(record.decision_date), 1997);
+  assert.notEqual(
+    yearOf(record.received_date),
+    yearOf(record.decision_date),
+    'this is the control: one record, two dates, two calendar years',
+  );
+  // Still one event. Whatever §6.6 ends up doing, it must not read this as two.
+  assert.equal(record.date, record.decision_date);
+});
 
 test('fixture: openFDA AESOP 510(k)', async (t) => {
   const raw = needsFixture('openfda-aesop-510k', t);

@@ -51,7 +51,7 @@ const dist = (name) => import(path.join(repoRoot, 'dist', name));
 const { arxivUrl } = await dist('sources/arxiv.js');
 const { crossrefSearchUrl, crossrefDoiUrl } = await dist('sources/crossref.js');
 const { esearchUrl, esummaryUrl } = await dist('sources/pubmed.js');
-const { clearanceSearchUrl, approvalSearchUrl } = await dist('sources/openfda.js');
+const { clearanceSearchUrl, approvalSearchUrl, clearanceByNumberUrl } = await dist('sources/openfda.js');
 const { summaryUrl } = await dist('sources/wikipedia.js');
 const { patentsviewUrl } = await dist('sources/patentsview.js');
 const { HOST_LIMITS, DEFAULT_HOST_LIMIT, RateLimiter } = await dist('ratelimit.js');
@@ -64,8 +64,18 @@ const { credentialHeaders } = await dist('credentials.js');
  */
 const FIXTURES = [
   {
+    name: 'openfda-k931783',
+    note: 'AESOP K931783 by exact K number. The golden set asserts received 1993-04-09 and decision 1993-11-22 — both in 1993, which is what falsified the cross-year hypothesis. This fixture is the evidence for that assertion.',
+    url: () => clearanceByNumberUrl('K931783'),
+  },
+  {
+    name: 'openfda-k963126-cross-year',
+    note: 'The cross-year control: received 1996, decided 1997. One record whose dates really do straddle a year boundary, so the verifier must report the decision date WITHOUT flagging conflation. Promotes golden future_cases.cross-year-fda-processing to an asserted entry.',
+    url: () => clearanceByNumberUrl('K963126'),
+  },
+  {
     name: 'openfda-aesop-510k',
-    note: 'AESOP 510(k) — the clearance half of the ROBODOC/AESOP conflation case.',
+    note: 'AESOP by device name — all matches, to see K931783 alongside its siblings.',
     url: () => clearanceSearchUrl({ query: 'AESOP', limit: 10 }),
   },
   {
