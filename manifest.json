@@ -45,6 +45,10 @@
       "description": "Search arXiv, PubMed, and Crossref for recent papers. Terms are ANDed to anchor field context; the date window adapts (6 to 60 months) when not supplied and is always reported as window_used."
     },
     {
+      "name": "check_registry",
+      "description": "Primary-source lookup across openFDA (both 510(k) and PMA), Crossref, Wikipedia, and PatentsView. Returns every match with explicit truncation reporting, never a chosen best match."
+    },
+    {
       "name": "cache_status",
       "description": "Diagnostics for the on-disk cache: entry counts by namespace, freshness, age distribution, and hit rate by tool. Makes no network calls."
     },

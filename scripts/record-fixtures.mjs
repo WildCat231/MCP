@@ -126,8 +126,28 @@ const FIXTURES = [
   },
   {
     name: 'openfda-robodoc-510k',
-    note: 'DECISIVE: ROBODOC in the 510(k) database. A 2008 clearance here means the golden ROBODOC PMA row mislabels a clearance as an approval.',
+    note: 'DECISIVE: ROBODOC in the 510(k) database. Complete at 2 of 2 records.',
     url: () => clearanceSearchUrl({ query: 'ROBODOC', limit: 25 }),
+    allowError: true,
+  },
+  {
+    // openfda-davinci-510k returned 25 of 115 in openFDA's default (unspecified)
+    // order, and the oldest record is NOT in that page. Taking the minimum of a
+    // truncated unsorted page answers a different question than "what is the
+    // earliest clearance". Sorting ascending is the only way to ask it.
+    name: 'openfda-davinci-510k-earliest',
+    note: "RESOLVES the da Vinci date: 510(k) records sorted by decision_date ascending. The golden row's 2000-07 stands or falls on this.",
+    url: () => clearanceSearchUrl({ query: 'DA VINCI', limit: 5, sort: 'decision_date:asc' }),
+    allowError: true,
+  },
+  {
+    // Direct test of the specific claim: is there ANY da Vinci clearance in
+    // calendar year 2000? A NOT_FOUND here means 2000-07 refers to no FDA
+    // decision at all.
+    name: 'openfda-davinci-2000',
+    note: 'RESOLVES the da Vinci date: any da Vinci clearance decided during calendar 2000. NOT_FOUND means the spec date matches no FDA decision.',
+    url: () =>
+      clearanceSearchUrl({ query: 'DA VINCI', limit: 25, decision_from: '2000-01-01', decision_to: '2000-12-31' }),
     allowError: true,
   },
   {
@@ -174,9 +194,21 @@ const FIXTURES = [
     allowError: true,
   },
   {
+    // Recorded 200 — but it is a DISAMBIGUATION page, which the adapter
+    // correctly resolves to zero records. Kept precisely for that: it is the
+    // §8 adversarial case where an entity name has no article of its own.
     name: 'wikipedia-robodoc',
-    note: 'Entity aliases and redirect resolution. Sentence case, per Wikipedia title convention. If this 404s, use the title from wikipedia-robodoc-search.',
+    note: 'Robodoc is a disambiguation page, not an article. Must yield zero records — a tertiary source that describes no single subject attests to nothing.',
     url: () => summaryUrl('Robodoc'),
+    allowError: true,
+  },
+  {
+    // wikipedia-robodoc-search resolved ROBODOC to "Robotic surgery": the
+    // device has no article of its own. Recording the resolved title rather
+    // than guessing another casing.
+    name: 'wikipedia-robotic-surgery',
+    note: 'The article ROBODOC actually resolves to, per wikipedia-robodoc-search. A real article, for the non-disambiguation path.',
+    url: () => summaryUrl('Robotic surgery'),
     allowError: true,
   },
   {

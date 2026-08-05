@@ -172,6 +172,22 @@ export interface OpenFdaQuery {
   limit?: number;
   /** Extra `field:value` clauses, ANDed with the free-text search. */
   filters?: Record<string, string>;
+  /**
+   * e.g. `decision_date:asc`. openFDA's default ordering is unspecified, so
+   * without this a truncated result page is an arbitrary subset — asking for
+   * the earliest record and taking the minimum of the first page silently
+   * answers a different question. This is not hypothetical: a da Vinci search
+   * returns 115 records, and the default first 25 do not contain the oldest.
+   */
+  sort?: string;
+  /** Inclusive ISO date bounds applied to `decision_date`. */
+  decision_from?: string;
+  decision_to?: string;
+}
+
+/** openFDA wants bare `YYYYMMDD` inside a range expression. */
+function compact(date: string): string {
+  return date.replace(/-/g, '');
 }
 
 function searchExpression(query: OpenFdaQuery, nameField: string): string {
@@ -180,19 +196,30 @@ function searchExpression(query: OpenFdaQuery, nameField: string): string {
   for (const [field, value] of Object.entries(query.filters ?? {})) {
     clauses.push(`${field}:${quote(value)}`);
   }
+  if (query.decision_from !== undefined || query.decision_to !== undefined) {
+    const from = compact(query.decision_from ?? '1976-01-01');
+    const to = compact(query.decision_to ?? '2100-01-01');
+    clauses.push(`decision_date:[${from}+TO+${to}]`);
+  }
   return clauses.join('+AND+');
 }
 
-export function clearanceSearchUrl(query: OpenFdaQuery): string {
+function openFdaUrl(endpoint: string, query: OpenFdaQuery, nameField: string): string {
   // openFDA's `search` uses `+` as its AND separator and must not be
   // percent-encoded, so it is appended rather than passed through URLSearchParams.
-  const base = buildUrl(OPENFDA_510K_ENDPOINT, { limit: query.limit ?? 25 });
-  return `${base}&search=${searchExpression(query, 'device_name')}`;
+  const base = buildUrl(endpoint, {
+    limit: query.limit ?? 25,
+    ...(query.sort === undefined ? {} : { sort: query.sort }),
+  });
+  return `${base}&search=${searchExpression(query, nameField)}`;
+}
+
+export function clearanceSearchUrl(query: OpenFdaQuery): string {
+  return openFdaUrl(OPENFDA_510K_ENDPOINT, query, 'device_name');
 }
 
 export function approvalSearchUrl(query: OpenFdaQuery): string {
-  const base = buildUrl(OPENFDA_PMA_ENDPOINT, { limit: query.limit ?? 25 });
-  return `${base}&search=${searchExpression(query, 'trade_name')}`;
+  return openFdaUrl(OPENFDA_PMA_ENDPOINT, query, 'trade_name');
 }
 
 /**

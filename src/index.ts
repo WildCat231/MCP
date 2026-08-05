@@ -26,8 +26,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { Cache, CACHE_NAMESPACES } from './cache.js';
+import { REGISTRY_NAMES } from './types.js';
+import type { RegistryName } from './types.js';
 import type { CacheNamespace } from './cache.js';
 import { frontierHome } from './paths.js';
+import { checkRegistry } from './registries.js';
+import type { CheckRegistryOutput } from './registries.js';
 import { searchLiterature } from './search.js';
 import type { SearchLiteratureOutput } from './search.js';
 
@@ -100,6 +104,7 @@ export function createServer(): McpServer {
 
   registerPing(server);
   registerSearchLiterature(server);
+  registerCheckRegistry(server);
   registerCacheStatus(server);
   registerClearCache(server);
 
@@ -163,6 +168,68 @@ function registerSearchLiterature(server: McpServer): void {
         return textResult({ ...result, cache_hit: false });
       } catch (err) {
         return errorResult(`search_literature failed: ${describe(err)}`, { results: [] });
+      }
+    },
+  );
+}
+
+function registerCheckRegistry(server: McpServer): void {
+  server.registerTool(
+    'check_registry',
+    {
+      title: 'Check registry',
+      description:
+        'Primary-source lookup. Try this before falling back to general literature search: for any ' +
+        'regulatory claim, openFDA settles clearance-vs-approval definitively, because 510(k) and PMA ' +
+        'are separate databases with separate dates — and this tool queries BOTH and returns both, so ' +
+        'the distinction is visible without knowing which to ask for. Returns every match, never a ' +
+        'chosen one. Always read `truncated`: a truncated result set shows that records exist but ' +
+        'cannot establish which is earliest, and absence from it is not absence from the registry.',
+      inputSchema: {
+        registry: z
+          .enum(REGISTRY_NAMES as unknown as [RegistryName, ...RegistryName[]])
+          .describe('Which registry to query.'),
+        query: z
+          .string()
+          .min(1)
+          .describe('Device name, DOI, K number, article title, or patent text depending on the registry.'),
+        filters: z.record(z.string()).optional().describe('Registry-specific field:value narrowing.'),
+        limit: z.number().int().positive().max(100).optional().describe('Default 25.'),
+        sort: z
+          .string()
+          .optional()
+          .describe('openFDA only, e.g. "decision_date:asc". Required before making any ordering claim.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async (input) => {
+      try {
+        const request = {
+          registry: input.registry,
+          query: input.query,
+          ...(input.filters === undefined ? {} : { filters: input.filters }),
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...(input.sort === undefined ? {} : { sort: input.sort }),
+        };
+
+        const cache = await getCache().catch(() => undefined);
+        if (cache !== undefined) {
+          const hit = await cache.get<CheckRegistryOutput>('registry', 'check_registry', request);
+          if (hit.outcome === 'fresh' && hit.value !== undefined) {
+            return textResult({ ...hit.value, cache_hit: true });
+          }
+        }
+
+        const result = await checkRegistry(request);
+
+        // A failed lookup must not be cached for 30 days as though it were an
+        // absence — that is the same error as reading a timeout as a quiet field.
+        if (cache !== undefined && result.error === undefined) {
+          await cache.set('registry', 'check_registry', request, result);
+        }
+        return textResult({ ...result, cache_hit: false });
+      } catch (err) {
+        return errorResult(`check_registry failed: ${describe(err)}`, { records: [] });
       }
     },
   );

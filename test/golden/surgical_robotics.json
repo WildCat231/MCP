@@ -1,56 +1,92 @@
 {
   "field": "surgical robotics",
-  "spec_reference": "CODEX_SPEC.md §8",
+  "spec_reference": "CODEX_SPEC.md \u00a78",
   "note": "Hand-written expected answers. The pipeline is broken if it misses these. Every entry states date_precision explicitly on both the input claim and the expected verification, because precision is itself a claim: a source attesting '1985' has not attested '1985-01-01', and padding it would manufacture agreement or disagreement that no source expressed.",
   "disputed": [
     {
-      "entry": "da-vinci-pma-approval",
+      "entry": "da-vinci-clearance",
+      "field": "date",
       "status": "unresolved",
-      "spec_says": "regulatory_approval (PMA), 2000-07",
-      "suspicion": "da Vinci may have been CLEARED via 510(k) rather than APPROVED via PMA. If so this row states the wrong event type — the exact error the negative case catches on ROBODOC, sitting inside the golden set that is supposed to detect it.",
-      "evidence_so_far": "openfda-davinci-pma returned HTTP 404. On the 510(k) endpoint a 404 is confirmed to mean zero matches (see openfda-not-found, recorded with the identical query shape). But no PMA query has ever succeeded, so the PMA endpoint and its search syntax are unproven, and this 404 could equally be a malformed query.",
+      "spec_says": "2000-07",
+      "evidence_so_far": "The event type is settled: da Vinci is absent from PMA (openfda-davinci-pma NOT_FOUND, with the PMA query proven working by openfda-pma-smoke returning 56,853 records) and has 115 510(k) records. The DATE is not settled. The earliest clearance seen is K002489, decided 2001-03-02, received 2000-08-10. Two problems with concluding anything: (1) 2000-08 is not 2000-07, so even the received date does not match the spec; (2) openfda-davinci-510k returned only 25 of 115 records in openFDA's default UNSPECIFIED order, and the oldest record is demonstrably not in that page \u2014 so an earlier clearance may exist and simply not have been retrieved.",
+      "candidate_explanations": [
+        "2000-07 refers to K002489's submission rather than its decision, misremembered by a month (received 2000-08-10).",
+        "2000-07 refers to a da Vinci clearance not present in the truncated 25-record page.",
+        "2000-07 refers to a non-FDA event entirely \u2014 a CE mark, a commercial launch, or a first clinical use.",
+        "2000-07 is simply wrong, propagated between secondary sources."
+      ],
       "resolved_by": {
-        "controls": ["openfda-pma-smoke", "openfda-pma-syntax-control"],
-        "decisive": "openfda-davinci-510k",
-        "rule": "If BOTH controls return 200 with records, the PMA query path works and the 404 is a genuine absence. If openfda-davinci-510k then shows a clearance dated 2000-07, this row must be rewritten to regulatory_clearance with the K number as registry_id. If either control fails, the 404 proves nothing and this row stands unchanged pending a working PMA query."
+        "decisive": [
+          "openfda-davinci-510k-earliest",
+          "openfda-davinci-2000"
+        ],
+        "rule": "openfda-davinci-510k-earliest sorts by decision_date ascending, so its first record IS the earliest da Vinci clearance. openfda-davinci-2000 asks directly whether any da Vinci clearance was decided in calendar 2000. If that returns NOT_FOUND, 2000-07 corresponds to no FDA decision and the date mode should be dropped to a single value with the spec date recorded as refuted. If it returns a record, anchor to it."
       },
-      "not_yet_changed_because": "Rewriting on the strength of a 404 whose query is unvalidated would replace one unverified claim with another. The controls exist to avoid exactly that."
+      "not_yet_changed_because": "A truncated, unsorted page cannot establish an earliest date. Asserting 2001-03-02 as THE clearance date on 25 of 115 arbitrary records would repeat, in a smaller way, the error this whole exercise exists to correct."
+    }
+  ],
+  "resolved_disputes": [
+    {
+      "entry": "da-vinci-clearance",
+      "was": "regulatory_approval (PMA), per spec \u00a78",
+      "now": "regulatory_clearance, anchored to K002489",
+      "resolved_by": "openfda-pma-smoke (200, 56,853 records) and openfda-pma-syntax-control proved the PMA query path works; openfda-davinci-pma then returned NOT_FOUND, making the absence genuine; openfda-davinci-510k returned 115 matches.",
+      "note": "Only the event type is resolved. The date remains disputed above."
     },
     {
-      "entry": "robodoc-pma-approval",
-      "status": "unresolved",
-      "spec_says": "regulatory_approval (PMA), 2008",
-      "suspicion": "Same question as da Vinci: the 2008 event may have been a 510(k) clearance rather than a PMA approval.",
-      "evidence_so_far": "openfda-robodoc-pma returned HTTP 404, with the same interpretive caveat as above.",
-      "resolved_by": {
-        "controls": ["openfda-pma-smoke", "openfda-pma-syntax-control"],
-        "decisive": "openfda-robodoc-510k",
-        "rule": "If BOTH controls return 200 with records, the PMA query path works and the 404 is a genuine absence. If openfda-robodoc-510k then shows a clearance dated 2008, this row must be rewritten to regulatory_clearance with the K number as registry_id. If either control fails, the 404 proves nothing and this row stands unchanged pending a working PMA query."
-      },
-      "not_yet_changed_because": "Same reason. Note this row is load-bearing for the negative case, which contrasts ROBODOC's 1992 clinical use against a later regulatory event; if the event type changes, the negative case's wording needs review even though its conflation finding (clearance vs approval on the superlative) does not depend on it."
+      "entry": "robodoc-2008-clearance",
+      "was": "regulatory_approval (PMA) 2008, per spec \u00a78",
+      "now": "regulatory_clearance 2008-08-06, anchored to K072629",
+      "resolved_by": "Same controls: openfda-pma-smoke (200, 56,853 records) and openfda-pma-syntax-control. openfda-robodoc-pma then returned NOT_FOUND; openfda-robodoc-510k returned exactly 2 of 2 records, so unlike da Vinci this result is COMPLETE and the earliest is definitive.",
+      "note": "Fully resolved: event type and date both."
     }
   ],
   "deviations_from_spec": [
     {
       "entry": "aesop-510k-clearance",
-      "spec_says": "contested (date bimodal), 1993–1994",
+      "spec_says": "contested (date bimodal), 1993\u20131994",
       "this_file_says": "corroborated, 1993-11-22, day precision",
-      "why": "The primary record settles it. K931783 was received 1993-04-09 and decided 1993-11-22 — both within 1993, so there is no bimodal distribution to detect. The spec's expectation encoded the secondary-source confusion, which is real; the registry outranks it, which is the whole point of §6.1 'registry first'. The 1994 variant moves to the refuted set rather than becoming a second mode.",
-      "source": "openFDA record K931783, reported by the maintainer. Not yet independently recorded in test/fixtures/ — see future_cases.blocked_on for the same caveat applied to K963126."
+      "why": "The primary record settles it. K931783 was received 1993-04-09 and decided 1993-11-22 \u2014 both within 1993, so there is no bimodal distribution to detect. The spec's expectation encoded the secondary-source confusion, which is real; the registry outranks it, which is the whole point of \u00a76.1 'registry first'. The 1994 variant moves to the refuted set rather than becoming a second mode.",
+      "source": "Fixture openfda-k931783 (HTTP 200): date_received 1993-04-09, decision_date 1993-11-22. Confirmed against the primary record, not reported."
+    },
+    {
+      "entry": "da-vinci-clearance",
+      "spec_says": "regulatory_approval (PMA), 2000-07, corroborated",
+      "this_file_says": "regulatory_clearance anchored to K002489; date contested",
+      "why": "da Vinci is absent from the openFDA PMA database and has 115 records in 510(k). The PMA query path is proven working by openfda-pma-smoke (200, 56,853 records), so the NOT_FOUND is a genuine absence. The spec row states the same clearance-vs-approval error the negative case exists to catch. The date is left contested because the 510(k) search returned 25 of 115 records in unspecified order.",
+      "source": "Fixtures openfda-pma-smoke, openfda-davinci-pma, openfda-davinci-510k."
+    },
+    {
+      "entry": "robodoc-2008-clearance",
+      "spec_says": "regulatory_approval (PMA), 2008, corroborated",
+      "this_file_says": "regulatory_clearance 2008-08-06 anchored to K072629, corroborated",
+      "why": "Same finding as da Vinci. ROBODOC is absent from PMA and has exactly two 510(k) records, so unlike da Vinci the result set is complete and the earliest date is definitive.",
+      "source": "Fixtures openfda-pma-smoke, openfda-robodoc-pma, openfda-robodoc-510k."
+    },
+    {
+      "entry": "robodoc-1992-first-fda-approved (negative)",
+      "spec_says": "contested",
+      "this_file_says": "refuted",
+      "why": "Refuted is strictly more severe than contested in the \u00a76.5 ordering, so the spec's bar (must not be corroborated) is exceeded. The spec expected contested on the assumption ROBODOC held a real PMA that sources confused with AESOP's clearance; no such PMA exists, so the asserted event did not occur in any form.",
+      "source": "Fixtures openfda-pma-smoke, openfda-robodoc-pma, openfda-robodoc-510k."
     }
   ],
   "precision_contract": {
     "year": "^[0-9]{4}$",
     "month": "^[0-9]{4}-[0-9]{2}$",
     "day": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-    "rule": "claim.date_precision and expect.date.precision must each match the granularity of their own date string. A verifier must never return a precision finer than the sources support."
+    "rule": "claim.date_precision and expect.date.precision must each match the granularity of their own date string. A verifier must never return a precision finer than the sources support.",
+    "modes_rule": "expect.date.modes is a list of {value, precision}. Precision is per-mode, not per-field, because a contested date can have modes of different granularity: da Vinci's registry mode is a day (2001-03-02) while the spec's disputed mode is a month (2000-07). A single field-level precision cannot express that, and forcing one would either invent precision for the coarse mode or discard it from the fine one. expect.date.precision remains the precision of the best-supported mode."
   },
   "entries": [
     {
       "id": "puma-560-first-clinical-use",
       "claim": {
         "entity": "PUMA 560",
-        "entity_aliases": ["Programmable Universal Machine for Assembly 560", "Unimation PUMA 560"],
+        "entity_aliases": [
+          "Programmable Universal Machine for Assembly 560",
+          "Unimation PUMA 560"
+        ],
         "event_type": "first_clinical_use",
         "date": "1985",
         "date_precision": "year",
@@ -63,17 +99,29 @@
         "date": {
           "status": "corroborated",
           "precision": "year",
-          "modes": ["1985"]
+          "modes": [
+            {
+              "value": "1985",
+              "precision": "year"
+            }
+          ]
         },
-        "event_type": { "status": "corroborated" },
-        "conflation": { "suspected": false }
+        "event_type": {
+          "status": "corroborated"
+        },
+        "conflation": {
+          "suspected": false
+        }
       }
     },
     {
       "id": "robodoc-first-clinical-use",
       "claim": {
         "entity": "ROBODOC",
-        "entity_aliases": ["ROBODOC Surgical Assistant", "Integrated Surgical Systems ROBODOC"],
+        "entity_aliases": [
+          "ROBODOC Surgical Assistant",
+          "Integrated Surgical Systems ROBODOC"
+        ],
         "event_type": "first_clinical_use",
         "date": "1992",
         "date_precision": "year",
@@ -86,17 +134,28 @@
         "date": {
           "status": "corroborated",
           "precision": "year",
-          "modes": ["1992"]
+          "modes": [
+            {
+              "value": "1992",
+              "precision": "year"
+            }
+          ]
         },
-        "event_type": { "status": "corroborated" },
-        "conflation": { "suspected": false }
+        "event_type": {
+          "status": "corroborated"
+        },
+        "conflation": {
+          "suspected": false
+        }
       }
     },
     {
       "id": "aesop-510k-clearance",
       "claim": {
         "entity": "AESOP",
-        "entity_aliases": ["Automated Endoscopic System for Optimal Positioning"],
+        "entity_aliases": [
+          "Automated Endoscopic System for Optimal Positioning"
+        ],
         "event_type": "regulatory_clearance",
         "date": "1993-11-22",
         "date_precision": "day",
@@ -111,74 +170,116 @@
         "date": {
           "status": "corroborated",
           "precision": "day",
-          "modes": ["1993-11-22"],
-          "note": "DEVIATES FROM SPEC §8, which predicts 'contested (date bimodal)' across 1993–1994. The primary record settles it: K931783 was received 1993-04-09 and decided 1993-11-22, both within 1993. The secondary-source disagreement is real, but the registry outranks it — which is what §6.1 'registry first' is for. Day precision because the record states a day."
+          "modes": [
+            {
+              "value": "1993-11-22",
+              "precision": "day"
+            }
+          ],
+          "note": "DEVIATES FROM SPEC \u00a78, which predicts 'contested (date bimodal)' across 1993\u20131994. The primary record settles it: K931783 was received 1993-04-09 and decided 1993-11-22, both within 1993. The secondary-source disagreement is real, but the registry outranks it \u2014 which is what \u00a76.1 'registry first' is for. Day precision because the record states a day."
         },
         "event_type": {
           "status": "corroborated",
-          "note": "A 510(k) is a clearance, definitively (§6.1). Unaffected by the date finding, and still the counterweight to the ROBODOC 'first FDA-approved' superlative in the negative case."
+          "note": "A 510(k) is a clearance, definitively (\u00a76.1). Unaffected by the date finding, and still the counterweight to the ROBODOC 'first FDA-approved' superlative in the negative case."
         },
         "conflation": {
           "suspected": false,
-          "note": "No date conflation. The 1994 variant is not a second mode of a bimodal distribution — it is simply wrong, and is covered as a refuted case below."
+          "note": "No date conflation. The 1994 variant is not a second mode of a bimodal distribution \u2014 it is simply wrong, and is covered as a refuted case below."
         }
       }
     },
     {
-      "id": "robodoc-pma-approval",
+      "id": "robodoc-2008-clearance",
       "claim": {
         "entity": "ROBODOC",
-        "entity_aliases": ["ROBODOC Surgical System"],
-        "event_type": "regulatory_approval",
-        "date": "2008",
-        "date_precision": "year",
+        "entity_aliases": [
+          "ROBODOC Surgical System",
+          "DIGIMATCH ROBODOC SURGICAL SYSTEM"
+        ],
+        "event_type": "regulatory_clearance",
+        "date": "2008-08-06",
+        "date_precision": "day",
+        "registry": "openfda_device",
+        "registry_id": "K072629",
         "superlative": null,
-        "description": "ROBODOC received FDA premarket approval.",
+        "description": "The DIGIMATCH ROBODOC Surgical System received FDA 510(k) clearance.",
         "component": "orthopaedic systems"
       },
       "expect": {
         "overall": "corroborated",
         "date": {
           "status": "corroborated",
-          "precision": "year",
-          "modes": ["2008"]
+          "precision": "day",
+          "modes": [
+            {
+              "value": "2008-08-06",
+              "precision": "day"
+            }
+          ],
+          "note": "K072629: received 2007-09-17, decided 2008-08-06. A cross-year record \u2014 received one year, decided the next \u2014 and still one event. \u00a76.6 must not read this as bimodal."
         },
         "event_type": {
           "status": "corroborated",
-          "note": "Must resolve to regulatory_approval, distinct from the 1992 first clinical use and from AESOP's clearance."
+          "note": "CORRECTED from regulatory_approval. ROBODOC is absent from the openFDA PMA database and present in 510(k) with exactly two records; the PMA query is proven working by openfda-pma-smoke (56,853 records) and openfda-pma-syntax-control. It was CLEARED, never approved."
         },
-        "conflation": { "suspected": false }
+        "conflation": {
+          "suspected": false
+        }
       }
     },
     {
-      "id": "da-vinci-pma-approval",
+      "id": "da-vinci-clearance",
       "claim": {
         "entity": "da Vinci",
-        "entity_aliases": ["da Vinci Surgical System", "Intuitive Surgical da Vinci"],
-        "event_type": "regulatory_approval",
-        "date": "2000-07",
-        "date_precision": "month",
+        "entity_aliases": [
+          "da Vinci Surgical System",
+          "Intuitive Surgical da Vinci",
+          "INTUITIVE SURGICAL DA VINCI ENDOSCOPIC CONTROL SYSTEM"
+        ],
+        "event_type": "regulatory_clearance",
+        "date": "2001-03-02",
+        "date_precision": "day",
+        "registry": "openfda_device",
+        "registry_id": "K002489",
         "superlative": null,
-        "description": "The da Vinci Surgical System received FDA premarket approval for general laparoscopic surgery.",
+        "description": "The da Vinci Endoscopic Control System received FDA 510(k) clearance.",
         "component": "telemanipulators"
       },
       "expect": {
-        "overall": "corroborated",
+        "overall": "contested",
         "date": {
-          "status": "corroborated",
-          "precision": "month",
-          "modes": ["2000-07"],
-          "note": "The only month-precision entry in the set. A verifier that coarsens this to '2000' has lost information the sources carry; one that reports a specific day has invented it."
+          "status": "contested",
+          "precision": "day",
+          "modes": [
+            {
+              "value": "2001-03-02",
+              "precision": "day"
+            },
+            {
+              "value": "2000-07",
+              "precision": "month"
+            }
+          ],
+          "note": "DISPUTED \u2014 see disputed[] for the unresolved part. Spec \u00a78 says 2000-07; the earliest clearance seen is K002489, decided 2001-03-02 and RECEIVED 2000-08-10. The received date is the likeliest origin of a '2000' in secondary sources, but it is August, not July, so it does not explain 2000-07 either. Crucially the search returned only 25 of 115 records in openFDA's default unspecified order, so an earlier record may simply not have been seen. Not resolvable from current fixtures."
         },
-        "event_type": { "status": "corroborated" },
-        "conflation": { "suspected": false }
+        "event_type": {
+          "status": "corroborated",
+          "note": "CORRECTED from regulatory_approval. da Vinci is absent from the openFDA PMA database and has 115 records in 510(k). It was CLEARED, never approved \u2014 the same clearance-vs-approval error this system exists to catch, found inside its own golden set."
+        },
+        "conflation": {
+          "suspected": true,
+          "field": "date",
+          "note": "Received 2000-08-10 vs decided 2001-03-02: a genuine cross-year record, unlike AESOP. This is the mechanism the falsified AESOP hypothesis predicted, occurring here instead."
+        }
       }
     },
     {
       "id": "star-2016-anastomosis",
       "claim": {
         "entity": "STAR",
-        "entity_aliases": ["Smart Tissue Anastomosis Robot"],
+        "entity_aliases": [
+          "Smart Tissue Anastomosis Robot"
+        ],
         "event_type": "publication",
         "date": "2016",
         "date_precision": "year",
@@ -191,9 +292,16 @@
         "date": {
           "status": "corroborated",
           "precision": "year",
-          "modes": ["2016"]
+          "modes": [
+            {
+              "value": "2016",
+              "precision": "year"
+            }
+          ]
         },
-        "event_type": { "status": "corroborated" },
+        "event_type": {
+          "status": "corroborated"
+        },
         "conflation": {
           "suspected": false,
           "note": "Must NOT be conflated with the 2022 entry despite the shared acronym. If entity drift is detected across these two, it should surface on entity, not date."
@@ -204,7 +312,9 @@
       "id": "star-2022-laparoscopic",
       "claim": {
         "entity": "STAR",
-        "entity_aliases": ["Smart Tissue Autonomous Robot"],
+        "entity_aliases": [
+          "Smart Tissue Autonomous Robot"
+        ],
         "event_type": "publication",
         "date": "2022",
         "date_precision": "year",
@@ -217,12 +327,19 @@
         "date": {
           "status": "corroborated",
           "precision": "year",
-          "modes": ["2022"]
+          "modes": [
+            {
+              "value": "2022",
+              "precision": "year"
+            }
+          ]
         },
-        "event_type": { "status": "corroborated" },
+        "event_type": {
+          "status": "corroborated"
+        },
         "conflation": {
           "suspected": false,
-          "note": "'Smart Tissue Autonomous Robot' (2022) and 'Smart Tissue Anastomosis Robot' (2016) are materially different systems. §6.6 acronym drift: the alias expansions differ, which is entity drift and produces false corroboration if missed."
+          "note": "'Smart Tissue Autonomous Robot' (2022) and 'Smart Tissue Anastomosis Robot' (2016) are materially different systems. \u00a76.6 acronym drift: the alias expansions differ, which is entity drift and produces false corroboration if missed."
         }
       }
     }
@@ -230,10 +347,12 @@
   "refuted": [
     {
       "id": "aesop-510k-clearance-1994",
-      "note": "The same event as aesop-510k-clearance, dated wrongly. Because both carry registry_id K931783 they derive the SAME claim id — one event with a disputed date, not two events. A verifier that treats them as separate claims will render one clearance twice on the timeline.",
+      "note": "The same event as aesop-510k-clearance, dated wrongly. Because both carry registry_id K931783 they derive the SAME claim id \u2014 one event with a disputed date, not two events. A verifier that treats them as separate claims will render one clearance twice on the timeline.",
       "claim": {
         "entity": "AESOP",
-        "entity_aliases": ["Automated Endoscopic System for Optimal Positioning"],
+        "entity_aliases": [
+          "Automated Endoscopic System for Optimal Positioning"
+        ],
         "event_type": "regulatory_clearance",
         "date": "1994",
         "date_precision": "year",
@@ -247,11 +366,11 @@
         "date": {
           "status": "refuted",
           "precision": "year",
-          "note": "Not merely unsupported — actively contradicted. K931783's decision date is 1993-11-22, and no part of its lifecycle falls in 1994; the received date is 1993-04-09. This is the distinction between 'refuted' and 'unverified' (§4), and the only golden entry exercising it."
+          "note": "Not merely unsupported \u2014 actively contradicted. K931783's decision date is 1993-11-22, and no part of its lifecycle falls in 1994; the received date is 1993-04-09. This is the distinction between 'refuted' and 'unverified' (\u00a74), and the only golden entry exercising it."
         },
         "event_type": {
           "status": "corroborated",
-          "note": "Right about what happened, wrong about when — the §6.2 case, in its cleanest form."
+          "note": "Right about what happened, wrong about when \u2014 the \u00a76.2 case, in its cleanest form."
         },
         "conflation": {
           "suspected": false,
@@ -261,25 +380,10 @@
       }
     }
   ],
-  "future_cases": [
-    {
-      "id": "cross-year-fda-processing",
-      "status": "not_yet_asserted",
-      "note": "Reserved for the cross-year processing case that the AESOP hypothesis was wrongly thought to be. K963126 was received in 1996 and decided in 1997, so a single openFDA record genuinely does straddle a year boundary here. It is the control: the verifier must report the decision date without flagging conflation, because two dates on one record are one event's lifecycle, not two events merged. A discriminator that fires on this would fire across most of the openFDA database.",
-      "registry": "openfda_device",
-      "registry_id": "K963126",
-      "expect": {
-        "received_year": 1996,
-        "decision_year": 1997,
-        "date_from": "decision_date",
-        "conflation": { "suspected": false }
-      },
-      "blocked_on": "Field values unverified — recorded from a report, not from a response this repository has seen. Record the openfda-k963126-cross-year fixture before promoting this to an asserted entry."
-    }
-  ],
+  "future_cases": [],
   "negative": {
     "id": "robodoc-1992-first-fda-approved",
-    "note": "REQUIRED. If this returns corroborated, verification is not working and no other feature matters (§8).",
+    "note": "REQUIRED. If this returns corroborated, verification is not working and no other feature matters (\u00a78). REWORDED after the PMA finding: the original framing contrasted ROBODOC's supposed PMA approval against AESOP's mere clearance. That premise was wrong. ROBODOC has NO PMA record either, so the claim fails harder than the spec anticipated \u2014 the event it asserts did not occur in any form.",
     "claim": {
       "entity": "ROBODOC",
       "event_type": "regulatory_approval",
@@ -289,28 +393,52 @@
       "description": "ROBODOC was the first surgical robot approved by the FDA."
     },
     "expect": {
-      "overall": "contested",
+      "overall": "refuted",
+      "overall_note": "DEVIATES FROM SPEC \u00a78, which requires 'contested'. Refuted is strictly more severe (\u00a76.5 severity order: refuted > contested > unverified > single_source > corroborated), so the spec's actual bar \u2014 that this must not come back corroborated \u2014 is exceeded rather than missed. The spec expected contested because it assumed ROBODOC held a real PMA that sources confused with AESOP's clearance. There is no PMA.",
+      "event_type": {
+        "status": "refuted",
+        "note": "ROBODOC is absent from the openFDA PMA database and present in 510(k) with two records. The PMA query is proven working (openfda-pma-smoke: 56,853 records), so this is absence from a database that covers the period, not absence of evidence. 'regulatory_approval' is contradicted, not merely unsupported."
+      },
       "date": {
-        "status": "contested",
+        "status": "refuted",
         "precision": "year",
-        "note": "1992 is ROBODOC's first clinical use, not its approval date; the PMA is 2008. The date is attached to the wrong event."
+        "note": "1992 is ROBODOC's first clinical use. Its only FDA clearance is 2008-08-06 (K072629). The date is attached to the wrong event AND the wrong event type."
       },
       "superlative": {
         "status": "contested",
-        "note": "§6.3: any competing claimant with sources makes this contested, full stop, regardless of how many sources back the original."
+        "note": "\u00a76.3: any competing claimant with sources makes this contested, full stop, regardless of how many sources back the original. Note the superlative is contested while the fields under it are refuted \u2014 a claim can be disputed among sources while being independently disprovable against the registry."
       },
       "competing_claimants": [
         {
           "entity": "AESOP",
           "event_type": "regulatory_clearance",
+          "registry_id": "K931783",
           "date_precision": "year",
-          "note": "Cleared via 510(k), not approved via PMA. The conflation of clearance with approval is what generates the competing 'first FDA-approved' claims."
+          "note": "Cleared via 510(k) in 1993, earlier than any ROBODOC FDA decision. A competing claimant for 'first', though on the correct reading neither entity was ever FDA-APPROVED."
         }
       ],
       "conflation": {
         "suspected": true,
         "field": "event_type",
-        "note": "regulatory_clearance and regulatory_approval merged under one label across sources."
+        "note": "REWORDED after the PMA finding. Neither device has an approval: ROBODOC and AESOP were both CLEARED via 510(k), and openFDA holds no PMA record for either. So the conflation is not one device's approval being mistaken for another's clearance \u2014 it is that the phrase 'FDA-approved' is applied across this whole field to devices that were cleared, collapsing two distinct regulatory instruments into one word. That is broader and more consequential than the spec described, and it is why regulatory_clearance and regulatory_approval are separate EventType values."
+      }
+    }
+  },
+  "cross_year_control": {
+    "id": "cross-year-fda-processing",
+    "status": "confirmed",
+    "registry": "openfda_device",
+    "registry_id": "K963126",
+    "device_name": "AESOP SYSTEM AND ACCESSORIES",
+    "received_date": "1996-08-12",
+    "decision_date": "1997-04-07",
+    "note": "CONFIRMED against fixture openfda-k963126-cross-year. A single record whose received and decision dates fall in different calendar years. It is one event's lifecycle, not two events, so the verifier must report decision_date and must NOT flag conflation. A discriminator firing here would fire across most of openFDA. Note this is an AESOP record too, so the same device has both a same-year record (K931783) and a cross-year one \u2014 which is precisely why the cross-year hypothesis for AESOP's disputed date was wrong: the mechanism exists in the data but does not explain the 1993/1994 split.",
+    "expect": {
+      "received_year": 1996,
+      "decision_year": 1997,
+      "date_from": "decision_date",
+      "conflation": {
+        "suspected": false
       }
     }
   }

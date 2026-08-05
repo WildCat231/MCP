@@ -44,6 +44,9 @@ function allEntries() {
   return [...golden.entries, ...golden.refuted, golden.negative];
 }
 
+/** Field expectations that carry a status, for the §6.5 severity check. */
+const STATUS_FIELDS = ['date', 'event_type', 'superlative'];
+
 /** Assert a date string and its declared precision agree. */
 function assertPrecision(date, precision, label) {
   assert.ok(precision !== undefined, `${label}: date_precision is missing`);
@@ -75,15 +78,33 @@ test('every claim declares a date_precision that matches its date', async () => 
   }
 });
 
-test('every expected date declares a precision that matches its modes', async () => {
+test('every expected date mode carries its own precision, and it matches', async () => {
+  // Precision is per-mode, not per-field. A contested date can hold modes of
+  // different granularity — da Vinci's registry mode is a day while the
+  // disputed spec mode is a month — and a single field-level precision would
+  // either invent precision for the coarse mode or discard it from the fine
+  // one.
   for (const entry of allEntries()) {
     const expected = entry.expect.date;
     assert.ok(expected, `${entry.id}: expect.date is required`);
     assert.ok(expected.precision !== undefined, `${entry.id}: expect.date.precision is required`);
 
     for (const mode of expected.modes ?? []) {
-      assertPrecision(mode, expected.precision, `${entry.id} expected mode`);
+      assert.equal(typeof mode, 'object', `${entry.id}: modes must be {value, precision}`);
+      assertPrecision(mode.value, mode.precision, `${entry.id} mode "${mode.value}"`);
     }
+  }
+});
+
+test('the declared field precision is one of the modes actual precisions', async () => {
+  for (const entry of allEntries()) {
+    const expected = entry.expect.date;
+    const modes = expected.modes ?? [];
+    if (modes.length === 0) continue;
+    assert.ok(
+      modes.some((m) => m.precision === expected.precision),
+      `${entry.id}: field precision ${expected.precision} matches no mode`,
+    );
   }
 });
 
@@ -99,13 +120,20 @@ test('expected precision is never finer than the claim states', async () => {
   }
 });
 
-test('da Vinci is the month-precision case and stays that way', async () => {
-  // The one entry that would silently pass if precision were ignored entirely.
-  const entry = golden.entries.find((e) => e.id === 'da-vinci-pma-approval');
-  assert.equal(entry.claim.date, '2000-07');
-  assert.equal(entry.claim.date_precision, 'month');
-  assert.equal(entry.expect.date.precision, 'month');
-  assert.deepEqual(entry.expect.date.modes, ['2000-07']);
+test('all three precisions are exercised somewhere in the set', async () => {
+  // Year, month and day must each appear, or a verifier that mishandles one of
+  // them passes the whole golden set. Month now survives only inside da
+  // Vinci's disputed mode, which is precisely why per-mode precision matters.
+  const precisions = new Set();
+  for (const entry of allEntries()) {
+    precisions.add(entry.claim.date_precision);
+    for (const mode of entry.expect.date.modes ?? []) precisions.add(mode.precision);
+  }
+  assert.deepEqual([...precisions].sort(), ['day', 'month', 'year']);
+
+  const davinci = golden.entries.find((e) => e.id === 'da-vinci-clearance');
+  const monthMode = davinci.expect.date.modes.find((m) => m.precision === 'month');
+  assert.equal(monthMode.value, '2000-07', "the spec's month-precision date is retained as a disputed mode");
 });
 
 test('every event_type and status is one the type system knows', async () => {
@@ -116,7 +144,7 @@ test('every event_type and status is one the type system knows', async () => {
     );
     assert.ok(STATUSES.includes(entry.expect.overall), `${entry.id}: bad overall status`);
 
-    for (const field of ['date', 'event_type', 'superlative']) {
+    for (const field of STATUS_FIELDS) {
       const expectation = entry.expect[field];
       if (expectation?.status !== undefined) {
         assert.ok(STATUSES.includes(expectation.status), `${entry.id}.${field}: bad status`);
@@ -127,7 +155,7 @@ test('every event_type and status is one the type system knows', async () => {
 
 test('overall is the most severe field status, per §6.5', async () => {
   for (const entry of allEntries()) {
-    const fieldStatuses = ['date', 'event_type', 'superlative']
+    const fieldStatuses = STATUS_FIELDS
       .map((f) => entry.expect[f]?.status)
       .filter((s) => s !== undefined);
 
@@ -140,21 +168,27 @@ test('overall is the most severe field status, per §6.5', async () => {
   }
 });
 
-test('the clearance/approval distinction is exercised by distinct entries', async () => {
+test('the clearance/approval distinction is still exercised — now from the other side', async () => {
+  // It used to be exercised by holding a clearance and an approval side by
+  // side. The registry showed there is no approval to hold: every real device
+  // here was cleared. So the distinction is now exercised by the negative
+  // case, which asserts an approval that does not exist and must be refuted.
   const byType = golden.entries.reduce((acc, e) => {
     acc[e.claim.event_type] = (acc[e.claim.event_type] ?? 0) + 1;
     return acc;
   }, {});
-  assert.ok(byType.regulatory_clearance >= 1, 'a 510(k) clearance must be represented');
-  assert.ok(byType.regulatory_approval >= 1, 'a PMA approval must be represented');
+  assert.ok(byType.regulatory_clearance >= 3, 'AESOP, ROBODOC and da Vinci are all clearances');
+  assert.equal(byType.regulatory_approval, undefined, 'no real entry claims an approval any more');
 
-  // ROBODOC appears as both a 1992 clinical use and a 2008 approval; that pair
-  // is the whole point of the canonical test case.
+  assert.equal(golden.negative.claim.event_type, 'regulatory_approval');
+  assert.equal(golden.negative.expect.event_type.status, 'refuted');
+
+  // ROBODOC still appears twice: a 1992 clinical use and a 2008 clearance.
   const robodoc = golden.entries.filter((e) => e.claim.entity === 'ROBODOC');
   assert.equal(robodoc.length, 2);
   assert.deepEqual(
     robodoc.map((e) => `${e.claim.event_type}:${e.claim.date}`).sort(),
-    ['first_clinical_use:1992', 'regulatory_approval:2008'],
+    ['first_clinical_use:1992', 'regulatory_clearance:2008-08-06'],
   );
 });
 
@@ -170,7 +204,7 @@ test('AESOP resolves to the primary record, not to a bimodal date', async () => 
   assert.equal(aesop.claim.date_precision, 'day');
 
   assert.equal(aesop.expect.date.status, 'corroborated');
-  assert.deepEqual(aesop.expect.date.modes, ['1993-11-22']);
+  assert.deepEqual(aesop.expect.date.modes, [{ value: '1993-11-22', precision: 'day' }]);
   assert.equal(aesop.expect.conflation.suspected, false, 'no conflation to detect');
   assert.equal(aesop.expect.event_type.status, 'corroborated');
 });
@@ -240,42 +274,65 @@ test('any entry with a registry_id names a real registry', async () => {
   }
 });
 
-test('disputed rows are flagged, with the evidence and the test that resolves them', async () => {
-  // Two golden rows assert regulatory_approval on the strength of spec §8, and
-  // both PMA lookups came back 404. That is suggestive but not conclusive: no
-  // PMA query has ever succeeded, so the endpoint and syntax are unproven.
-  // Flagging beats either believing the row or rewriting it on a hunch.
-  assert.ok(Array.isArray(golden.disputed), 'a disputed section is required once a row is in doubt');
-  assert.equal(golden.disputed.length, 2);
-
-  for (const dispute of golden.disputed) {
-    const entry = golden.entries.find((e) => e.id === dispute.entry);
-    assert.ok(entry, `disputed entry "${dispute.entry}" should exist`);
-    assert.equal(entry.claim.event_type, 'regulatory_approval', 'both disputes are about approval vs clearance');
-
-    assert.equal(dispute.status, 'unresolved');
-    assert.ok(dispute.evidence_so_far, 'a dispute must carry its evidence');
-    assert.ok(dispute.not_yet_changed_because, 'and must say why it was not acted on');
-
-    // The resolution must be a recorded fixture, not a judgement call.
-    assert.ok(dispute.resolved_by.decisive, 'a dispute needs a decisive fixture');
-    assert.ok(dispute.resolved_by.controls.length >= 1, 'and controls to make it interpretable');
-    assert.match(dispute.resolved_by.rule, /If (BOTH|either)/, 'the rule must state both branches');
+test('no golden entry claims regulatory_approval any more', async () => {
+  // The PMA controls settled it: neither ROBODOC nor da Vinci has a PMA
+  // record, and the PMA query path is proven working. Spec §8 asserted
+  // approvals for both — the same clearance-vs-approval error the negative
+  // case exists to catch, sitting in the golden set built to detect it.
+  for (const entry of allEntries()) {
+    if (entry.id === 'robodoc-1992-first-fda-approved') continue; // the negative asserts it on purpose
+    assert.notEqual(
+      entry.claim.event_type,
+      'regulatory_approval',
+      `${entry.id} still claims an approval that no PMA record supports`,
+    );
   }
 });
 
-test('the disputed rows are exactly the two PMA approvals', async () => {
-  const disputedIds = golden.disputed.map((d) => d.entry).sort();
-  const approvalIds = golden.entries
-    .filter((e) => e.claim.event_type === 'regulatory_approval')
-    .map((e) => e.id)
-    .sort();
-  assert.deepEqual(disputedIds, approvalIds, 'every unverified approval row should be flagged');
+test('both corrected rows are anchored to their K numbers', async () => {
+  const robodoc = golden.entries.find((e) => e.id === 'robodoc-2008-clearance');
+  assert.equal(robodoc.claim.event_type, 'regulatory_clearance');
+  assert.equal(robodoc.claim.registry_id, 'K072629');
+  assert.equal(robodoc.claim.date, '2008-08-06');
+  assert.equal(robodoc.claim.date_precision, 'day');
+  assert.equal(robodoc.expect.overall, 'corroborated', 'complete result set, so fully settled');
+
+  const davinci = golden.entries.find((e) => e.id === 'da-vinci-clearance');
+  assert.equal(davinci.claim.event_type, 'regulatory_clearance');
+  assert.equal(davinci.claim.registry_id, 'K002489');
 });
 
-test('the AESOP clearance is NOT disputed — it has a primary record', async () => {
-  // The contrast that makes the disputed list meaningful: a row anchored to a
-  // confirmed registry record is settled, one resting on a 404 is not.
+test('the resolved disputes record what changed and on what evidence', async () => {
+  assert.equal(golden.resolved_disputes.length, 2);
+  for (const resolved of golden.resolved_disputes) {
+    assert.match(resolved.was, /regulatory_approval/);
+    assert.match(resolved.now, /regulatory_clearance/);
+    assert.match(resolved.resolved_by, /openfda-pma-smoke/, 'the control that made the absence readable');
+  }
+});
+
+test("da Vinci's date stays disputed — a truncated page cannot establish an earliest", async () => {
+  // 25 of 115 records in openFDA's default unspecified order, and the oldest
+  // is not in that page. Asserting 2001-03-02 as THE clearance date would
+  // repeat, smaller, the error this whole exercise corrected.
+  assert.equal(golden.disputed.length, 1, 'only the da Vinci date remains open');
+  const dispute = golden.disputed[0];
+  assert.equal(dispute.entry, 'da-vinci-clearance');
+  assert.equal(dispute.field, 'date', 'the event type is settled; only the date is not');
+  assert.equal(dispute.status, 'unresolved');
+
+  assert.match(dispute.evidence_so_far, /25 of 115/, 'the truncation must be stated');
+  assert.ok(dispute.candidate_explanations.length >= 3, 'competing explanations, not one guess');
+  assert.ok(dispute.resolved_by.decisive.includes('openfda-davinci-510k-earliest'));
+  assert.ok(dispute.resolved_by.decisive.includes('openfda-davinci-2000'));
+  assert.ok(dispute.not_yet_changed_because);
+
+  const entry = golden.entries.find((e) => e.id === dispute.entry);
+  assert.equal(entry.expect.date.status, 'contested', 'the dispute must show in the expectation too');
+  assert.deepEqual(entry.expect.date.modes.map((m) => m.value), ['2001-03-02', '2000-07']);
+});
+
+test('the AESOP clearance is NOT disputed — it has a complete primary record', async () => {
   const disputedIds = golden.disputed.map((d) => d.entry);
   assert.ok(!disputedIds.includes('aesop-510k-clearance'));
 
@@ -283,22 +340,25 @@ test('the AESOP clearance is NOT disputed — it has a primary record', async ()
   assert.equal(aesop.claim.registry_id, 'K931783', 'settled precisely because it is anchored');
 });
 
-test('the cross-year case is reserved but not yet asserted', async () => {
+test('the cross-year control is confirmed and must not trigger conflation', async () => {
   // K963126 is the control the AESOP hypothesis was mistaken for: a single
   // record whose received and decision dates really do straddle a year.
-  const future = golden.future_cases.find((c) => c.id === 'cross-year-fda-processing');
-  assert.ok(future, 'the cross-year case must be recorded for later');
-  assert.equal(future.status, 'not_yet_asserted');
-  assert.equal(future.registry_id, 'K963126');
-  assert.equal(future.expect.received_year, 1996);
-  assert.equal(future.expect.decision_year, 1997);
-  assert.notEqual(future.expect.received_year, future.expect.decision_year, 'that is the point of it');
+  const control = golden.cross_year_control;
+  assert.equal(control.status, 'confirmed');
+  assert.equal(control.registry_id, 'K963126');
+  assert.equal(control.received_date, '1996-08-12');
+  assert.equal(control.decision_date, '1997-04-07');
+  assert.notEqual(control.expect.received_year, control.expect.decision_year, 'that is the point of it');
 
-  // Crucially it must NOT expect conflation: two dates on one record are one
-  // event's lifecycle. A discriminator firing here would fire on most of
-  // openFDA.
-  assert.equal(future.expect.conflation.suspected, false);
-  assert.ok(future.blocked_on, 'unverified values must say so');
+  // Two dates on one record are one event's lifecycle. A discriminator firing
+  // here would fire across most of openFDA.
+  assert.equal(control.expect.conflation.suspected, false);
+  assert.equal(control.expect.date_from, 'decision_date');
+
+  // And it is an AESOP record — the same device that has a same-year record in
+  // K931783. The mechanism exists in the data; it just did not explain the
+  // 1993/1994 split.
+  assert.match(control.device_name, /AESOP/);
 });
 
 test('the STAR entries must not corroborate each other', async () => {
@@ -314,26 +374,50 @@ test('the STAR entries must not corroborate each other', async () => {
   }
 });
 
-test('the negative case demands contested, a competing claimant, and conflation', async () => {
-  // §8: "If it returns corroborated, verification is not working and no other
-  // feature matters."
+test('the negative case now refutes rather than contests, and says why', async () => {
+  // §8 requires "contested". Refuted is strictly more severe (§6.5), so the
+  // spec's real bar — must not come back corroborated — is exceeded. The spec
+  // expected contested because it assumed ROBODOC held a genuine PMA that
+  // sources confused with AESOP's clearance. There is no PMA.
   const negative = golden.negative;
   assert.equal(negative.claim.entity, 'ROBODOC');
   assert.equal(negative.claim.event_type, 'regulatory_approval');
   assert.equal(negative.claim.date, '1992');
-  assert.equal(negative.claim.date_precision, 'year');
   assert.equal(negative.claim.superlative, 'first FDA-approved surgical robot');
 
-  assert.equal(negative.expect.overall, 'contested');
-  assert.notEqual(negative.expect.overall, 'corroborated');
+  assert.notEqual(negative.expect.overall, 'corroborated', 'the one thing §8 forbids');
+  assert.equal(negative.expect.overall, 'refuted');
+  assert.ok(
+    STATUS_SEVERITY.refuted > STATUS_SEVERITY.contested,
+    'refuted must be more severe than the contested the spec asked for',
+  );
+  assert.ok(negative.expect.overall_note, 'the deviation must be explained inline');
+
+  assert.equal(negative.expect.event_type.status, 'refuted', 'no PMA record exists at all');
+  assert.equal(negative.expect.date.status, 'refuted');
+
+  // The superlative stays contested: sources disagree about "first", which is
+  // a different question from whether the underlying event happened.
   assert.equal(negative.expect.superlative.status, 'contested');
   assert.equal(negative.expect.conflation.suspected, true);
   assert.equal(negative.expect.conflation.field, 'event_type');
 
   const aesop = negative.expect.competing_claimants.find((c) => c.entity === 'AESOP');
   assert.ok(aesop, 'AESOP must surface as a competing claimant');
-  assert.equal(aesop.event_type, 'regulatory_clearance', 'and as a clearance, not an approval');
-  assert.equal(aesop.date_precision, 'year');
+  assert.equal(aesop.event_type, 'regulatory_clearance');
+  assert.equal(aesop.registry_id, 'K931783', 'anchored, like every settled claim here');
+});
+
+test('the conflation note no longer rests on the false approval premise', async () => {
+  // The old wording said ROBODOC's approval was confused with AESOP's
+  // clearance. Neither device has an approval, so that framing was itself an
+  // instance of the error.
+  const note = golden.negative.expect.conflation.note;
+  assert.match(note, /neither device has an approval|CLEARED/i);
+  assert.ok(
+    !/ROBODOC's approval/i.test(note),
+    'the note must not presuppose an approval that does not exist',
+  );
 });
 
 test('only the negative case carries a superlative', async () => {

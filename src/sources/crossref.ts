@@ -21,7 +21,7 @@ interface CrossrefAuthor {
   name?: string;
 }
 
-interface CrossrefItem {
+export interface CrossrefItem {
   DOI?: string;
   title?: string[];
   'container-title'?: string[];

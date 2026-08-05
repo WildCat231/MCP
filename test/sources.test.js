@@ -36,7 +36,7 @@ import { arxivIdFromUrl, buildArxivQuery, parseArxivAtom } from '../dist/sources
 import { crossrefSearchUrl, parseCrossrefSearch, parseCrossrefWork } from '../dist/sources/crossref.js';
 import { isOriginalPma, parse510k, parsePma, searchClearances } from '../dist/sources/openfda.js';
 import { buildPubmedTerm, parseESearch, parseESummary } from '../dist/sources/pubmed.js';
-import { parseSummary, parseSummaryRecords } from '../dist/sources/wikipedia.js';
+import { parseSearch, parseSummary, parseSummaryRecords } from '../dist/sources/wikipedia.js';
 
 const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -463,61 +463,104 @@ test('fixture: the PMA controls establish whether a PMA 404 means anything', asy
   }
 });
 
-test('fixture: da Vinci — approval or clearance?', async (t) => {
-  // The golden set says regulatory_approval (spec §8). If da Vinci turns up in
-  // the 510(k) database instead, §8 mislabels a clearance as an approval — the
-  // same error the negative case catches on ROBODOC.
+test('fixture: da Vinci was CLEARED, not approved', async (t) => {
+  // Settled. The PMA controls proved the query path works, so the NOT_FOUND is
+  // a genuine absence rather than a broken query.
   const clearances = needsFixture('openfda-davinci-510k', t);
   if (clearances === undefined) return;
 
-  const controls = fixture('openfda-pma-smoke');
-  assert.ok(
-    controls !== undefined,
-    'record openfda-pma-smoke first — without it a PMA absence cannot be interpreted',
-  );
-
   const cleared = parse510k(JSON.parse(clearances));
-  const approved = fixture('openfda-davinci-pma');
-  const approvedRecords = approved === undefined ? undefined : parsePma(JSON.parse(approved)).records;
+  const approved = parsePma(JSON.parse(fixture('openfda-davinci-pma')));
 
-  if (cleared.records.length > 0 && approvedRecords !== undefined && approvedRecords.length === 0) {
-    // Decisive: present as a clearance, absent as an approval.
-    const dates = cleared.records.map((r) => r.date).filter((d) => d !== undefined);
-    assert.fail(
-      'da Vinci is in the 510(k) database and absent from PMA. The golden row ' +
-        `"da-vinci-pma-approval" states regulatory_approval and must be corrected to regulatory_clearance. ` +
-        `Clearance dates found: ${dates.join(', ')}. K numbers: ${cleared.records.map((r) => r.submission_number).join(', ')}.`,
-    );
+  assert.ok(cleared.records.length > 0, 'present in the 510(k) database');
+  assert.equal(approved.records.length, 0, 'absent from PMA');
+  assert.equal(approved.error, undefined, 'and absent as a clean NOT_FOUND, not an error');
+
+  for (const record of cleared.records) {
+    assert.equal(registryEventType(record).event_type, 'regulatory_clearance');
   }
-
-  // Otherwise the picture is mixed; record what we know rather than guessing.
-  assert.ok(
-    cleared.records.length > 0 || (approvedRecords?.length ?? 0) > 0,
-    'da Vinci should appear in at least one of the two FDA databases',
-  );
 });
 
-test('fixture: ROBODOC — approval or clearance?', async (t) => {
+test('fixture: the da Vinci result is truncated, so it cannot establish an earliest date', async (t) => {
+  // The trap this nearly walked into. 115 total, 25 returned, openFDA's
+  // default ordering unspecified — and the oldest record is not in the page.
+  // Taking the minimum of that page silently answers a different question.
+  const raw = needsFixture('openfda-davinci-510k', t);
+  if (raw === undefined) return;
+
+  const parsed = JSON.parse(raw);
+  const total = parsed.meta.results.total;
+  const returned = parsed.results.length;
+
+  assert.ok(total > returned, `truncated: ${returned} of ${total}`);
+  assert.ok(
+    !new URL(JSON.parse(fs.readFileSync(path.join(fixturesDir, 'openfda-davinci-510k.meta.json'), 'utf8')).url)
+      .searchParams.has('sort'),
+    'and unsorted, which is what makes the truncation dangerous rather than merely partial',
+  );
+
+  // The golden set must therefore leave the date open.
+  const golden = JSON.parse(
+    fs.readFileSync(path.join(fixturesDir, '..', 'golden', 'surgical_robotics.json'), 'utf8'),
+  );
+  const dispute = golden.disputed.find((d) => d.entry === 'da-vinci-clearance');
+  assert.ok(dispute, 'the date must stay disputed while the result set is truncated');
+  assert.equal(dispute.field, 'date');
+});
+
+test('fixture: da Vinci K002489 is a genuine cross-year record', async (t) => {
+  // Received 2000-08-10, decided 2001-03-02. This is the mechanism the AESOP
+  // hypothesis predicted and AESOP did not exhibit — it is real, just
+  // elsewhere. It is the likeliest origin of a "2000" in secondary sources,
+  // though August is still not the July the spec states.
+  const raw = needsFixture('openfda-davinci-510k', t);
+  if (raw === undefined) return;
+
+  const { records } = parse510k(JSON.parse(raw));
+  const k002489 = records.find((r) => r.submission_number === 'K002489');
+  assert.ok(k002489, 'K002489 should be in the recorded page');
+  assert.equal(k002489.received_date, '2000-08-10');
+  assert.equal(k002489.decision_date, '2001-03-02');
+  assert.notEqual(yearOf(k002489.received_date), yearOf(k002489.decision_date));
+  assert.equal(k002489.date, '2001-03-02', '`date` carries the decision, never the receipt');
+});
+
+test('fixture: ROBODOC was CLEARED, not approved — and completely so', async (t) => {
   const clearances = needsFixture('openfda-robodoc-510k', t);
   if (clearances === undefined) return;
 
-  const cleared = parse510k(JSON.parse(clearances));
-  const approved = fixture('openfda-robodoc-pma');
-  const approvedRecords = approved === undefined ? undefined : parsePma(JSON.parse(approved)).records;
+  const parsed = JSON.parse(clearances);
+  assert.equal(parsed.meta.results.total, parsed.results.length, 'complete: 2 of 2, unlike da Vinci');
 
-  if (cleared.records.length > 0 && approvedRecords !== undefined && approvedRecords.length === 0) {
-    const dates = cleared.records.map((r) => r.date).filter((d) => d !== undefined);
-    assert.fail(
-      'ROBODOC is in the 510(k) database and absent from PMA. The golden row ' +
-        `"robodoc-pma-approval" states regulatory_approval and must be corrected. ` +
-        `Clearance dates found: ${dates.join(', ')}.`,
-    );
+  const cleared = parse510k(parsed);
+  const approved = parsePma(JSON.parse(fixture('openfda-robodoc-pma')));
+  assert.equal(approved.records.length, 0, 'absent from PMA');
+
+  const earliest = cleared.records
+    .map((r) => r.date)
+    .filter((d) => d !== undefined)
+    .sort()[0];
+  assert.equal(earliest, '2008-08-06', 'definitive, because the result set is complete');
+
+  const k072629 = cleared.records.find((r) => r.submission_number === 'K072629');
+  assert.equal(k072629.decision_date, '2008-08-06');
+  assert.equal(registryEventType(k072629).event_type, 'regulatory_clearance');
+});
+
+test('fixture: the PMA controls make those absences readable', async (t) => {
+  const smoke = needsFixture('openfda-pma-smoke', t);
+  if (smoke === undefined) return;
+
+  const parsed = JSON.parse(smoke);
+  assert.ok(parsed.meta.results.total > 1000, 'the PMA database is populated');
+
+  const { records, error } = parsePma(parsed);
+  assert.equal(error, undefined);
+  assert.ok(records.length > 0, 'and the adapter parses real PMA rows');
+  for (const record of records) {
+    assert.ok(record.submission_type.startsWith('pma'));
+    assert.equal(registryEventType(record).event_type, 'regulatory_approval');
   }
-
-  assert.ok(
-    cleared.records.length > 0 || (approvedRecords?.length ?? 0) > 0,
-    'ROBODOC should appear in at least one of the two FDA databases',
-  );
 });
 
 test('fixture: openFDA AESOP 510(k)', async (t) => {
@@ -591,12 +634,37 @@ test('fixture: PubMed esummary', async (t) => {
   }
 });
 
-test('fixture: Wikipedia summary', async (t) => {
+test('fixture: Robodoc is a disambiguation page and yields no record', async (t) => {
+  // Recorded HTTP 200, but type "disambiguation". The adapter returning zero
+  // records is correct behaviour, not a failure: an article that describes no
+  // single subject attests to nothing. This is the §8 adversarial case.
   const raw = needsFixture('wikipedia-robodoc', t);
   if (raw === undefined) return;
 
-  const record = parseSummary(JSON.parse(raw));
-  assert.ok(record, 'ROBODOC should resolve to an article');
-  assert.equal(record.registry, 'wikipedia');
-  assert.equal(registryEventType(record).event_type, null);
+  const parsed = JSON.parse(raw);
+  assert.equal(parsed.type, 'disambiguation');
+  assert.deepEqual(parseSummaryRecords(parsed), [], 'zero records, honestly');
 });
+
+test('fixture: the search resolves ROBODOC to a real article title', async (t) => {
+  // Rather than guessing a third casing, the search endpoint was recorded and
+  // asked. It resolves to "Robotic surgery" — ROBODOC has no article of its
+  // own, which is itself a finding about tertiary coverage.
+  const raw = needsFixture('wikipedia-robodoc-search', t);
+  if (raw === undefined) return;
+
+  const { titles } = parseSearch(JSON.parse(raw));
+  assert.ok(titles.length > 0, 'the search should resolve something');
+  assert.ok(titles.includes('Robotic surgery'));
+
+  const resolved = fixture('wikipedia-robotic-surgery');
+  if (resolved === undefined) {
+    t.diagnostic('wikipedia-robotic-surgery not recorded yet — run the recorder to close the loop');
+    return;
+  }
+  const records = parseSummaryRecords(JSON.parse(resolved));
+  assert.equal(records.length, 1, 'the resolved title is a real article');
+  assert.equal(records[0].registry, 'wikipedia');
+  assert.equal(registryEventType(records[0]).event_type, null, 'and still attests to no event type');
+});
+

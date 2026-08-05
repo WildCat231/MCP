@@ -8,19 +8,20 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**Phase 4 of 10 — `search_literature` done; Phase 3 fixtures partly outstanding.**
+**Phase 5 of 10 — `check_registry` done. All fixtures recorded; full suite green with no skips.**
 
 | Phase | | |
 |---|---|---|
 | 1 | Skeleton, manifest | done |
 | 2 | Storage, cache TTLs, rate limiting | done |
-| 3 | Source adapters | fixtures recorded; 4 queries still to re-record |
+| 3 | Source adapters | done — validated against recorded fixtures |
 | 4 | `search_literature` | done |
-| 5–10 | registries, verification, conflation, clustering, snapshots, packaging | not started |
+| 5 | `check_registry` | done |
+| 6–10 | verification, conflation, clustering, snapshots, packaging | not started |
 
 Snapshot storage (§4 integrity, normally Phase 9) is also implemented ahead of order, because its read semantics had to be settled against the cache's.
 
-Four tools are exposed today: `ping`, `search_literature`, `cache_status`, `clear_cache`.
+Five tools are exposed today: `ping`, `search_literature`, `check_registry`, `cache_status`, `clear_cache`.
 
 ## `search_literature`
 
@@ -32,26 +33,52 @@ Queries arXiv, PubMed, and Crossref; deduplicates by DOI then normalized title; 
 
 **Failure is never silence.** A source that errors is reported in `errors` and named in the warning, with counts flagged as lower bounds. An empty result from three healthy sources says the field is genuinely quiet; an empty result from three timeouts says nothing at all, and §7 requires those to be distinguishable. Only clean runs are cached, so one timeout cannot make a field look dead for 24 hours.
 
-### Phase 3 is not finished
+## `check_registry`
 
-Most fixtures are recorded and passing, including both K-number lookups that confirm the AESOP dates against primary record K931783. Four queries still need re-recording, and two of them are blocking a golden-set correction:
+Primary-source lookup across the four registries (§6.1: try this before falling back to literature search). Three behaviours worth knowing:
 
-| Fixture | Last result | Status |
-|---|---|---|
-| `openfda-robodoc-pma` | HTTP 404 | Ambiguous — see "The PMA question" |
-| `openfda-davinci-pma` | HTTP 404 | Ambiguous — see "The PMA question" |
-| `wikipedia-robodoc` | HTTP 404 | Wrong title casing; retry as `Robodoc`, with `wikipedia-robodoc-search` to resolve it |
-| `patentsview-surgical-robot` | connection failed | Never reached the host — tells us nothing |
+**openFDA means both databases.** A regulatory query hits 510(k) *and* PMA and returns both. The clearance-vs-approval distinction is invisible if the caller has to know in advance which one to ask for — and getting that wrong is precisely the error this project exists to catch. When a device is present in one and absent from the other, the result says so in plain words.
 
-To re-record, from a machine with network access:
+**Every match, never a chosen one.** No best-match selection anywhere. Picking one record out of several is a judgement about which record a claim refers to, and per §2 that belongs to Claude, with all candidates visible.
+
+**Truncation is reported loudly.** `truncated`, `returned`, and `total_matches` always come back. A truncated set supports "these records exist"; it does *not* support "this is the earliest" or "there are no others", and the warning says so. This is not a hypothetical — see below.
+
+## What truncation cost us
+
+The da Vinci 510(k) search returns **115 matches**. The default page holds 25, in an order openFDA does not specify, and **the oldest record is not among them**. Reading "earliest clearance" off that page gives 2001-03-02; the true earliest is unknown.
+
+That is why `da-vinci-clearance`'s *date* remains disputed even though its *event type* is settled. Asserting 2001-03-02 from an arbitrary 25 of 115 would have repeated, in miniature, the exact error this whole exercise corrected. Two fixtures resolve it — `openfda-davinci-510k-earliest` (sorted ascending) and `openfda-davinci-2000` (any da Vinci decision in calendar 2000) — and until they are recorded the golden set says the date is open.
+
+## The PMA question: resolved
+
+Both controls returned 200 — `openfda-pma-smoke` shows 56,853 records — so the PMA query path is proven and the 404s are genuine absences.
+
+| | PMA | 510(k) | Verdict |
+|---|---|---|---|
+| **da Vinci** | absent | 115 records | **cleared, never approved** |
+| **ROBODOC** | absent | 2 records (complete) | **cleared, never approved** |
+
+Spec §8 lists both as `regulatory_approval`. They are not. **The golden set built to catch the clearance-vs-approval error contained that error twice.** Both rows are corrected to `regulatory_clearance` and anchored: ROBODOC to K072629 (2008-08-06, definitive — 2 of 2 records) and da Vinci to K002489.
+
+Two consequences worth stating:
+
+- **K002489 is a genuine cross-year record**: received 2000-08-10, decided 2001-03-02. That is the mechanism the falsified AESOP hypothesis predicted — it exists in the data, just not where it was looked for. It is the likeliest origin of a "2000" in secondary sources, though August is still not the July §8 states, so the date stays disputed rather than explained away.
+- **The negative case now returns `refuted`, not `contested`.** §8 asked for contested on the assumption ROBODOC held a real PMA that sources confused with AESOP's clearance. There is no PMA. Refuted is strictly more severe in the §6.5 ordering, so the spec's real bar — must not come back corroborated — is exceeded. Its conflation note was rewritten too: the error is not one device's approval mistaken for another's clearance, but the phrase "FDA-approved" applied across the field to devices that were *cleared*.
+
+## Wikipedia: ROBODOC has no article
+
+`Robodoc` returns HTTP 200 — as a **disambiguation page**. The adapter yielding zero records is correct behaviour, not a failure: an article describing no single subject attests to nothing. Rather than guess a third casing, the search endpoint was recorded and asked; it resolves to "Robotic surgery". The device has no article of its own, which is itself a finding about tertiary coverage. `check_registry` now falls back to search automatically and returns candidate titles.
+
+## Fixtures
+
+All fixtures are recorded and the suite runs green with no skips. To re-record from a network-capable machine:
 
 ```sh
 npm run build
 npm run record-fixtures          # --list to see what it records, --force to re-record
-npm test                         # the remaining skips become real assertions
 ```
 
-Expect the recordings to correct some field mappings. That is what they are for — the parse functions are pure, so a fixture is enough to confirm or fix one without touching the network again.
+Two remain unrecorded by design, because they were added to resolve the da Vinci date: `openfda-davinci-510k-earliest` and `openfda-davinci-2000`.
 
 The recorder distinguishes three outcomes, because they license different conclusions:
 
@@ -60,27 +87,6 @@ The recorder distinguishes three outcomes, because they license different conclu
 | `recorded` | Response captured. |
 | `HTTPFAIL` | The service answered with a non-2xx. That is a real answer about this query. |
 | `UNREACHED` | The request never got there — DNS, TLS, refused connection. **Nothing was learned**, and an unreached fixture must never be read as an absence. |
-
-`patentsview-surgical-robot`'s "fetch failed" was `UNREACHED`, not an HTTP error, so it says nothing about whether PatentsView needs a key.
-
-## The PMA question
-
-Both `openfda-robodoc-pma` and `openfda-davinci-pma` returned 404. That is suggestive but **not yet conclusive**, and the golden set has not been changed on the strength of it.
-
-On the 510(k) endpoint, a 404 is confirmed to mean zero matches: `openfda-not-found` recorded a 404 for a nonsense device name using the identical query shape that `openfda-aesop-510k` used successfully. But **no PMA query has ever succeeded**, so neither the PMA endpoint nor its search syntax is proven, and the 404s could equally be a malformed query.
-
-Two controls settle it, plus two decisive queries:
-
-| Fixture | Purpose |
-|---|---|
-| `openfda-pma-smoke` | PMA endpoint, no search clause. Proves the endpoint returns records at all. |
-| `openfda-pma-syntax-control` | PMA search over a date range matching everything. Proves the search syntax on this endpoint, with no device name to fail on. |
-| `openfda-davinci-510k` | Decisive. A 2000-07 clearance here means spec §8 mislabels a clearance as an approval. |
-| `openfda-robodoc-510k` | Decisive. Same question for ROBODOC's 2008 event. |
-
-**If both controls return records and the decisive queries show clearances, the golden set's `da-vinci-pma-approval` and `robodoc-pma-approval` rows state the wrong event type** — the same clearance-vs-approval error the negative case catches on ROBODOC, sitting inside the golden set built to detect it. The fixture tests fail with that instruction spelled out, including the K numbers and dates found.
-
-Both rows are flagged in the golden file's `disputed` section with their evidence, the fixtures that resolve them, and a rule stating both branches. They were not rewritten, because rewriting on the strength of a 404 whose query is unvalidated would replace one unverified claim with another.
 
 **What gets recorded is the raw upstream response**, byte for byte: `response.text()` written straight to disk, with no re-serialization, no pretty-printing, and no added trailing newline. The recorder imports only URL builders, the rate limiter, and the credential headers — never a `parse*` or `to*` function. That constraint is not a convention but a correctness requirement: a fixture that had passed through a parser would test that parser against its own output and pass regardless of how wrong the field mapping was. `test/recorder.test.js` enforces it statically.
 
@@ -93,13 +99,15 @@ Claims this codebase makes that have **not** been checked against reality, colle
 | Assumption | Status | How to settle it |
 |---|---|---|
 | arXiv, PubMed, Crossref, openFDA 510(k) field mappings | **Validated** against recorded fixtures | done |
-| openFDA PMA field mapping | Unvalidated — no PMA query has ever succeeded | `openfda-pma-smoke` |
-| Wikipedia and PatentsView field mappings | Unvalidated | re-record the two outstanding fixtures |
+| openFDA PMA field mapping | **Validated** — `openfda-pma-smoke` returned 56,853 records | done |
+| Wikipedia field mapping | **Validated** against recorded fixtures | done |
+| PatentsView field mapping | Unvalidated — the host was never reached | re-record `patentsview-surgical-robot` |
 | PatentsView requires an `X-Api-Key` | **Unknown.** Legacy `api.patentsview.org` was open; the current Search API documents the header | Handled at runtime — see below |
 | openFDA date formats (`YYYYMMDD` vs `YYYY-MM-DD`) | Both accepted defensively | `openfda-aesop-510k` fixture |
 | AESOP's 510(k) dates | **Confirmed** against K931783: received 1993-04-09, decision 1993-11-22 | done |
 | K963126's dates | **Confirmed** — received 1996, decided 1997 | done |
-| da Vinci / ROBODOC event types | **Disputed** — both PMA lookups 404 with the query unvalidated | See "The PMA question" |
+| da Vinci / ROBODOC event types | **Resolved** — both cleared, never approved | done |
+| da Vinci's clearance date | **Disputed** — result set truncated at 25 of 115, unsorted | `openfda-davinci-510k-earliest` |
 
 ## The AESOP cross-year hypothesis was falsified
 
@@ -237,6 +245,7 @@ src/
   http.ts               the single outbound HTTP path
   dates.ts              partial-date normalization with explicit precision
   search.ts             search_literature: adaptive window, dedup
+  registries.ts         check_registry: all four registries, truncation reporting
   cache.ts              TTL cache layer
   snapshot.ts           content-addressed snapshots, verified reads
   store.ts              atomic filesystem JSON store
@@ -257,6 +266,7 @@ test/
   dates.test.js         partial dates, precision, source-specific formats
   sources.test.js       adapter logic, plus fixture replay
   search.test.js        adaptive window, context anchoring, dedup, failures
+  registries.test.js    truncation, both openFDA databases, degradation
   golden.test.js        golden-set shape, incl. date_precision on every entry
   recorder.test.js      guards the recorder's raw-capture invariant
   fixtures/             recorded API responses (raw bytes + .meta.json)
