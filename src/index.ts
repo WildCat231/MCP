@@ -28,6 +28,8 @@ import { z } from 'zod';
 import { Cache, CACHE_NAMESPACES } from './cache.js';
 import type { CacheNamespace } from './cache.js';
 import { frontierHome } from './paths.js';
+import { searchLiterature } from './search.js';
+import type { SearchLiteratureOutput } from './search.js';
 
 const require = createRequire(import.meta.url);
 
@@ -97,10 +99,73 @@ export function createServer(): McpServer {
   );
 
   registerPing(server);
+  registerSearchLiterature(server);
   registerCacheStatus(server);
   registerClearCache(server);
 
   return server;
+}
+
+function registerSearchLiterature(server: McpServer): void {
+  server.registerTool(
+    'search_literature',
+    {
+      title: 'Search literature',
+      description:
+        'Search arXiv, PubMed, and Crossref for recent papers. Terms are ANDed, so pass several ' +
+        'to anchor the field context — a bare component name will return results from unrelated ' +
+        'disciplines. If no date window is given, one is chosen adaptively (6 -> 12 -> 24 -> 60 ' +
+        'months) and returned as window_used; read it, because the same result count means very ' +
+        'different things over 6 months and over 5 years.',
+      inputSchema: {
+        terms: z
+          .array(z.string())
+          .min(1)
+          .describe('Search terms, ANDed. Pass 2+ to anchor the field context.'),
+        sources: z
+          .array(z.enum(['arxiv', 'pubmed', 'crossref']))
+          .optional()
+          .describe('Which sources to query. Defaults to all three.'),
+        from: z.string().optional().describe('ISO date lower bound. Supplying this disables the adaptive window.'),
+        to: z.string().optional().describe('ISO date upper bound.'),
+        max_per_source: z.number().int().positive().max(100).optional().describe('Default 25.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async (input) => {
+      try {
+        const cache = await getCache().catch(() => undefined);
+        // Built with omission rather than explicit undefined so the cache key
+        // is identical whether an optional argument was absent or passed as
+        // undefined.
+        const request = {
+          terms: input.terms,
+          ...(input.sources === undefined ? {} : { sources: input.sources }),
+          ...(input.from === undefined ? {} : { from: input.from }),
+          ...(input.to === undefined ? {} : { to: input.to }),
+          ...(input.max_per_source === undefined ? {} : { max_per_source: input.max_per_source }),
+        };
+
+        if (cache !== undefined) {
+          const hit = await cache.get<SearchLiteratureOutput>('literature', 'search_literature', request);
+          if (hit.outcome === 'fresh' && hit.value !== undefined) {
+            return textResult({ ...hit.value, cache_hit: true });
+          }
+        }
+
+        const result = await searchLiterature(request);
+
+        // Only cache a clean run. Caching a partial result would let one
+        // timeout look like a quiet field for the next 24 hours.
+        if (cache !== undefined && result.errors === undefined) {
+          await cache.set('literature', 'search_literature', request, result);
+        }
+        return textResult({ ...result, cache_hit: false });
+      } catch (err) {
+        return errorResult(`search_literature failed: ${describe(err)}`, { results: [] });
+      }
+    },
+  );
 }
 
 /**

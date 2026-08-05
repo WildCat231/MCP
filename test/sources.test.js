@@ -437,6 +437,89 @@ test('fixture: K963126 is the genuine cross-year case', async (t) => {
   assert.equal(record.date, record.decision_date);
 });
 
+test('fixture: the PMA controls establish whether a PMA 404 means anything', async (t) => {
+  // Until these pass, a 404 from a PMA query is uninterpretable: it could be
+  // zero matches or a malformed query, and those license opposite conclusions.
+  const smoke = needsFixture('openfda-pma-smoke', t);
+  if (smoke === undefined) return;
+  const syntax = fixture('openfda-pma-syntax-control');
+
+  const smokeParsed = parsePma(JSON.parse(smoke));
+  assert.equal(smokeParsed.error, undefined, 'the PMA endpoint itself must work');
+  assert.ok(smokeParsed.records.length > 0, 'an unfiltered PMA query must return records');
+
+  for (const record of smokeParsed.records) {
+    assert.ok(record.submission_type.startsWith('pma'));
+    assert.equal(registryEventType(record).event_type, 'regulatory_approval');
+  }
+
+  if (syntax !== undefined) {
+    const syntaxParsed = parsePma(JSON.parse(syntax));
+    assert.equal(syntaxParsed.error, undefined);
+    assert.ok(
+      syntaxParsed.records.length > 0,
+      'a date range matching everything must return records — if this is empty the PMA search syntax is wrong, not the device',
+    );
+  }
+});
+
+test('fixture: da Vinci — approval or clearance?', async (t) => {
+  // The golden set says regulatory_approval (spec §8). If da Vinci turns up in
+  // the 510(k) database instead, §8 mislabels a clearance as an approval — the
+  // same error the negative case catches on ROBODOC.
+  const clearances = needsFixture('openfda-davinci-510k', t);
+  if (clearances === undefined) return;
+
+  const controls = fixture('openfda-pma-smoke');
+  assert.ok(
+    controls !== undefined,
+    'record openfda-pma-smoke first — without it a PMA absence cannot be interpreted',
+  );
+
+  const cleared = parse510k(JSON.parse(clearances));
+  const approved = fixture('openfda-davinci-pma');
+  const approvedRecords = approved === undefined ? undefined : parsePma(JSON.parse(approved)).records;
+
+  if (cleared.records.length > 0 && approvedRecords !== undefined && approvedRecords.length === 0) {
+    // Decisive: present as a clearance, absent as an approval.
+    const dates = cleared.records.map((r) => r.date).filter((d) => d !== undefined);
+    assert.fail(
+      'da Vinci is in the 510(k) database and absent from PMA. The golden row ' +
+        `"da-vinci-pma-approval" states regulatory_approval and must be corrected to regulatory_clearance. ` +
+        `Clearance dates found: ${dates.join(', ')}. K numbers: ${cleared.records.map((r) => r.submission_number).join(', ')}.`,
+    );
+  }
+
+  // Otherwise the picture is mixed; record what we know rather than guessing.
+  assert.ok(
+    cleared.records.length > 0 || (approvedRecords?.length ?? 0) > 0,
+    'da Vinci should appear in at least one of the two FDA databases',
+  );
+});
+
+test('fixture: ROBODOC — approval or clearance?', async (t) => {
+  const clearances = needsFixture('openfda-robodoc-510k', t);
+  if (clearances === undefined) return;
+
+  const cleared = parse510k(JSON.parse(clearances));
+  const approved = fixture('openfda-robodoc-pma');
+  const approvedRecords = approved === undefined ? undefined : parsePma(JSON.parse(approved)).records;
+
+  if (cleared.records.length > 0 && approvedRecords !== undefined && approvedRecords.length === 0) {
+    const dates = cleared.records.map((r) => r.date).filter((d) => d !== undefined);
+    assert.fail(
+      'ROBODOC is in the 510(k) database and absent from PMA. The golden row ' +
+        `"robodoc-pma-approval" states regulatory_approval and must be corrected. ` +
+        `Clearance dates found: ${dates.join(', ')}.`,
+    );
+  }
+
+  assert.ok(
+    cleared.records.length > 0 || (approvedRecords?.length ?? 0) > 0,
+    'ROBODOC should appear in at least one of the two FDA databases',
+  );
+});
+
 test('fixture: openFDA AESOP 510(k)', async (t) => {
   const raw = needsFixture('openfda-aesop-510k', t);
   if (raw === undefined) return;
@@ -482,10 +565,18 @@ test('fixture: Crossref work lookup', async (t) => {
   const raw = needsFixture('crossref-star-2016', t);
   if (raw === undefined) return;
 
-  const record = parseCrossrefWork(JSON.parse(raw));
-  assert.ok(record, 'the STAR 2016 DOI should resolve to a record');
+  // Plural, like every registry lookup — this test lagged the change and was
+  // reading `.registry` off the array.
+  const records = parseCrossrefWork(JSON.parse(raw));
+  assert.equal(records.length, 1, 'the STAR 2016 DOI should resolve to one record');
+
+  const record = records[0];
   assert.equal(record.registry, 'crossref');
+  assert.equal(record.doi, '10.1126/scitranslmed.aad9398');
+  assert.equal(record.work_type, 'journal-article');
   assert.match(record.date ?? '', /^2016/, 'golden set expects 2016');
+  assert.ok(record.authors.length > 0, 'author normalization should survive the real payload');
+  assert.equal(registryEventType(record).confidence, 'definitive');
 });
 
 test('fixture: PubMed esummary', async (t) => {

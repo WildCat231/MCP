@@ -240,6 +240,49 @@ test('any entry with a registry_id names a real registry', async () => {
   }
 });
 
+test('disputed rows are flagged, with the evidence and the test that resolves them', async () => {
+  // Two golden rows assert regulatory_approval on the strength of spec §8, and
+  // both PMA lookups came back 404. That is suggestive but not conclusive: no
+  // PMA query has ever succeeded, so the endpoint and syntax are unproven.
+  // Flagging beats either believing the row or rewriting it on a hunch.
+  assert.ok(Array.isArray(golden.disputed), 'a disputed section is required once a row is in doubt');
+  assert.equal(golden.disputed.length, 2);
+
+  for (const dispute of golden.disputed) {
+    const entry = golden.entries.find((e) => e.id === dispute.entry);
+    assert.ok(entry, `disputed entry "${dispute.entry}" should exist`);
+    assert.equal(entry.claim.event_type, 'regulatory_approval', 'both disputes are about approval vs clearance');
+
+    assert.equal(dispute.status, 'unresolved');
+    assert.ok(dispute.evidence_so_far, 'a dispute must carry its evidence');
+    assert.ok(dispute.not_yet_changed_because, 'and must say why it was not acted on');
+
+    // The resolution must be a recorded fixture, not a judgement call.
+    assert.ok(dispute.resolved_by.decisive, 'a dispute needs a decisive fixture');
+    assert.ok(dispute.resolved_by.controls.length >= 1, 'and controls to make it interpretable');
+    assert.match(dispute.resolved_by.rule, /If (BOTH|either)/, 'the rule must state both branches');
+  }
+});
+
+test('the disputed rows are exactly the two PMA approvals', async () => {
+  const disputedIds = golden.disputed.map((d) => d.entry).sort();
+  const approvalIds = golden.entries
+    .filter((e) => e.claim.event_type === 'regulatory_approval')
+    .map((e) => e.id)
+    .sort();
+  assert.deepEqual(disputedIds, approvalIds, 'every unverified approval row should be flagged');
+});
+
+test('the AESOP clearance is NOT disputed — it has a primary record', async () => {
+  // The contrast that makes the disputed list meaningful: a row anchored to a
+  // confirmed registry record is settled, one resting on a 404 is not.
+  const disputedIds = golden.disputed.map((d) => d.entry);
+  assert.ok(!disputedIds.includes('aesop-510k-clearance'));
+
+  const aesop = golden.entries.find((e) => e.id === 'aesop-510k-clearance');
+  assert.equal(aesop.claim.registry_id, 'K931783', 'settled precisely because it is anchored');
+});
+
 test('the cross-year case is reserved but not yet asserted', async () => {
   // K963126 is the control the AESOP hypothesis was mistaken for: a single
   // record whose received and decision dates really do straddle a year.

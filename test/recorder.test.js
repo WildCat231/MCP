@@ -29,7 +29,9 @@ function importedBindings() {
   const bindings = [];
   for (const match of withoutComments.matchAll(/const\s*\{([^}]+)\}\s*=\s*await\s+dist\(/g)) {
     for (const name of match[1].split(',')) {
-      const trimmed = name.trim();
+      // `{ searchUrl: wikipediaSearchUrl }` — check the exported name, since
+      // that is what identifies the module function being pulled in.
+      const trimmed = name.trim().split(':')[0]?.trim() ?? '';
       if (trimmed !== '') bindings.push(trimmed);
     }
   }
@@ -52,7 +54,11 @@ test('the recorder imports only URL builders and transport helpers', async () =>
     'clearanceByNumberUrl',
     'approvalByNumberUrl',
     'summaryUrl',
+    'searchUrl',
     'patentsviewUrl',
+    // Endpoint constants, for control fixtures that deliberately bypass the
+    // query builders to test the endpoint itself.
+    'OPENFDA_PMA_ENDPOINT',
     // Transport and politeness.
     'HOST_LIMITS',
     'DEFAULT_HOST_LIMIT',

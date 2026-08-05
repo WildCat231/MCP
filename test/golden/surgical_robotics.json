@@ -2,6 +2,34 @@
   "field": "surgical robotics",
   "spec_reference": "CODEX_SPEC.md §8",
   "note": "Hand-written expected answers. The pipeline is broken if it misses these. Every entry states date_precision explicitly on both the input claim and the expected verification, because precision is itself a claim: a source attesting '1985' has not attested '1985-01-01', and padding it would manufacture agreement or disagreement that no source expressed.",
+  "disputed": [
+    {
+      "entry": "da-vinci-pma-approval",
+      "status": "unresolved",
+      "spec_says": "regulatory_approval (PMA), 2000-07",
+      "suspicion": "da Vinci may have been CLEARED via 510(k) rather than APPROVED via PMA. If so this row states the wrong event type — the exact error the negative case catches on ROBODOC, sitting inside the golden set that is supposed to detect it.",
+      "evidence_so_far": "openfda-davinci-pma returned HTTP 404. On the 510(k) endpoint a 404 is confirmed to mean zero matches (see openfda-not-found, recorded with the identical query shape). But no PMA query has ever succeeded, so the PMA endpoint and its search syntax are unproven, and this 404 could equally be a malformed query.",
+      "resolved_by": {
+        "controls": ["openfda-pma-smoke", "openfda-pma-syntax-control"],
+        "decisive": "openfda-davinci-510k",
+        "rule": "If BOTH controls return 200 with records, the PMA query path works and the 404 is a genuine absence. If openfda-davinci-510k then shows a clearance dated 2000-07, this row must be rewritten to regulatory_clearance with the K number as registry_id. If either control fails, the 404 proves nothing and this row stands unchanged pending a working PMA query."
+      },
+      "not_yet_changed_because": "Rewriting on the strength of a 404 whose query is unvalidated would replace one unverified claim with another. The controls exist to avoid exactly that."
+    },
+    {
+      "entry": "robodoc-pma-approval",
+      "status": "unresolved",
+      "spec_says": "regulatory_approval (PMA), 2008",
+      "suspicion": "Same question as da Vinci: the 2008 event may have been a 510(k) clearance rather than a PMA approval.",
+      "evidence_so_far": "openfda-robodoc-pma returned HTTP 404, with the same interpretive caveat as above.",
+      "resolved_by": {
+        "controls": ["openfda-pma-smoke", "openfda-pma-syntax-control"],
+        "decisive": "openfda-robodoc-510k",
+        "rule": "If BOTH controls return 200 with records, the PMA query path works and the 404 is a genuine absence. If openfda-robodoc-510k then shows a clearance dated 2008, this row must be rewritten to regulatory_clearance with the K number as registry_id. If either control fails, the 404 proves nothing and this row stands unchanged pending a working PMA query."
+      },
+      "not_yet_changed_because": "Same reason. Note this row is load-bearing for the negative case, which contrasts ROBODOC's 1992 clinical use against a later regulatory event; if the event type changes, the negative case's wording needs review even though its conflation finding (clearance vs approval on the superlative) does not depend on it."
+    }
+  ],
   "deviations_from_spec": [
     {
       "entry": "aesop-510k-clearance",

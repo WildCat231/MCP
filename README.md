@@ -8,32 +8,79 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**Phase 3 of 10 — source adapters written, awaiting fixtures.**
+**Phase 4 of 10 — `search_literature` done; Phase 3 fixtures partly outstanding.**
 
 | Phase | | |
 |---|---|---|
 | 1 | Skeleton, manifest | done |
 | 2 | Storage, cache TTLs, rate limiting | done |
-| 3 | Source adapters | code complete, **unvalidated** — see below |
-| 4–10 | search, registries, verification, conflation, clustering, snapshots, packaging | not started |
+| 3 | Source adapters | fixtures recorded; 4 queries still to re-record |
+| 4 | `search_literature` | done |
+| 5–10 | registries, verification, conflation, clustering, snapshots, packaging | not started |
 
 Snapshot storage (§4 integrity, normally Phase 9) is also implemented ahead of order, because its read semantics had to be settled against the cache's.
 
-Three tools are exposed today: `ping`, `cache_status`, `clear_cache`.
+Four tools are exposed today: `ping`, `search_literature`, `cache_status`, `clear_cache`.
+
+## `search_literature`
+
+Queries arXiv, PubMed, and Crossref; deduplicates by DOI then normalized title; returns papers newest-first with the window actually used.
+
+**Adaptive window.** With no `from`/`to`, the search starts at 6 months and widens through 12, 24, and 60 until a source returns `max_per_source` results or the ceiling is reached. A fixed window fails fast- and slow-moving fields in opposite directions — six months of machine learning is a firehose, six months of railway signalling is silence. `window_used` and `windows_tried` always come back, because "3 papers" means something completely different over 6 months than over 5 years, and a caller who cannot tell them apart will misread both. An explicit window is never widened: the caller asked a specific question.
+
+**Context anchoring.** Terms are ANDed. A single term returns a `warning` — a warning, not a refusal, since the caller may know something the server does not, and refusing would substitute the server's judgement for Claude's (§2). Generic terms (`robotics`, `system`, `learning`, …) get a stronger one. An unanchored search is worse than an empty one, because it returns plausible results from the wrong discipline and looks like success.
+
+**Failure is never silence.** A source that errors is reported in `errors` and named in the warning, with counts flagged as lower bounds. An empty result from three healthy sources says the field is genuinely quiet; an empty result from three timeouts says nothing at all, and §7 requires those to be distinguishable. Only clean runs are cached, so one timeout cannot make a field look dead for 24 hours.
 
 ### Phase 3 is not finished
 
-Spec §8 requires fixtures recorded from real API responses: *"Record real API responses once, commit them, replay them in tests."* No fixture has been recorded, because every upstream host is blocked by the build environment's egress policy. The adapters are therefore written from each API's published schema and **have never seen a live response**.
+Most fixtures are recorded and passing, including both K-number lookups that confirm the AESOP dates against primary record K931783. Four queries still need re-recording, and two of them are blocking a golden-set correction:
 
-Six fixture-replay tests skip with instructions rather than passing vacuously. To finish Phase 3, from a machine with network access:
+| Fixture | Last result | Status |
+|---|---|---|
+| `openfda-robodoc-pma` | HTTP 404 | Ambiguous — see "The PMA question" |
+| `openfda-davinci-pma` | HTTP 404 | Ambiguous — see "The PMA question" |
+| `wikipedia-robodoc` | HTTP 404 | Wrong title casing; retry as `Robodoc`, with `wikipedia-robodoc-search` to resolve it |
+| `patentsview-surgical-robot` | connection failed | Never reached the host — tells us nothing |
+
+To re-record, from a machine with network access:
 
 ```sh
 npm run build
 npm run record-fixtures          # --list to see what it records, --force to re-record
-npm test                         # the six skips become real assertions
+npm test                         # the remaining skips become real assertions
 ```
 
 Expect the recordings to correct some field mappings. That is what they are for — the parse functions are pure, so a fixture is enough to confirm or fix one without touching the network again.
+
+The recorder distinguishes three outcomes, because they license different conclusions:
+
+| Outcome | Meaning |
+|---|---|
+| `recorded` | Response captured. |
+| `HTTPFAIL` | The service answered with a non-2xx. That is a real answer about this query. |
+| `UNREACHED` | The request never got there — DNS, TLS, refused connection. **Nothing was learned**, and an unreached fixture must never be read as an absence. |
+
+`patentsview-surgical-robot`'s "fetch failed" was `UNREACHED`, not an HTTP error, so it says nothing about whether PatentsView needs a key.
+
+## The PMA question
+
+Both `openfda-robodoc-pma` and `openfda-davinci-pma` returned 404. That is suggestive but **not yet conclusive**, and the golden set has not been changed on the strength of it.
+
+On the 510(k) endpoint, a 404 is confirmed to mean zero matches: `openfda-not-found` recorded a 404 for a nonsense device name using the identical query shape that `openfda-aesop-510k` used successfully. But **no PMA query has ever succeeded**, so neither the PMA endpoint nor its search syntax is proven, and the 404s could equally be a malformed query.
+
+Two controls settle it, plus two decisive queries:
+
+| Fixture | Purpose |
+|---|---|
+| `openfda-pma-smoke` | PMA endpoint, no search clause. Proves the endpoint returns records at all. |
+| `openfda-pma-syntax-control` | PMA search over a date range matching everything. Proves the search syntax on this endpoint, with no device name to fail on. |
+| `openfda-davinci-510k` | Decisive. A 2000-07 clearance here means spec §8 mislabels a clearance as an approval. |
+| `openfda-robodoc-510k` | Decisive. Same question for ROBODOC's 2008 event. |
+
+**If both controls return records and the decisive queries show clearances, the golden set's `da-vinci-pma-approval` and `robodoc-pma-approval` rows state the wrong event type** — the same clearance-vs-approval error the negative case catches on ROBODOC, sitting inside the golden set built to detect it. The fixture tests fail with that instruction spelled out, including the K numbers and dates found.
+
+Both rows are flagged in the golden file's `disputed` section with their evidence, the fixtures that resolve them, and a rule stating both branches. They were not rewritten, because rewriting on the strength of a 404 whose query is unvalidated would replace one unverified claim with another.
 
 **What gets recorded is the raw upstream response**, byte for byte: `response.text()` written straight to disk, with no re-serialization, no pretty-printing, and no added trailing newline. The recorder imports only URL builders, the rate limiter, and the credential headers — never a `parse*` or `to*` function. That constraint is not a convention but a correctness requirement: a fixture that had passed through a parser would test that parser against its own output and pass regardless of how wrong the field mapping was. `test/recorder.test.js` enforces it statically.
 
@@ -45,11 +92,14 @@ Claims this codebase makes that have **not** been checked against reality, colle
 
 | Assumption | Status | How to settle it |
 |---|---|---|
-| Every adapter's field mapping (arXiv, PubMed, Crossref, openFDA, Wikipedia, PatentsView) | From published docs; never validated | `npm run record-fixtures`, then `npm test` |
+| arXiv, PubMed, Crossref, openFDA 510(k) field mappings | **Validated** against recorded fixtures | done |
+| openFDA PMA field mapping | Unvalidated — no PMA query has ever succeeded | `openfda-pma-smoke` |
+| Wikipedia and PatentsView field mappings | Unvalidated | re-record the two outstanding fixtures |
 | PatentsView requires an `X-Api-Key` | **Unknown.** Legacy `api.patentsview.org` was open; the current Search API documents the header | Handled at runtime — see below |
 | openFDA date formats (`YYYYMMDD` vs `YYYY-MM-DD`) | Both accepted defensively | `openfda-aesop-510k` fixture |
-| AESOP's 510(k) dates | **Reported, not yet recorded here** — K931783: received 1993-04-09, decision 1993-11-22 | `openfda-k931783` fixture |
-| K963126's dates | **Reported, not yet recorded here** — received 1996, decided 1997 | `openfda-k963126-cross-year` fixture |
+| AESOP's 510(k) dates | **Confirmed** against K931783: received 1993-04-09, decision 1993-11-22 | done |
+| K963126's dates | **Confirmed** — received 1996, decided 1997 | done |
+| da Vinci / ROBODOC event types | **Disputed** — both PMA lookups 404 with the query unvalidated | See "The PMA question" |
 
 ## The AESOP cross-year hypothesis was falsified
 
@@ -182,9 +232,11 @@ src/
   index.ts              MCP server entry, tool registration
   types.ts              the data contract (spec §4)
   registry.ts           registry -> EventType mapping, one typed function each
+  claim.ts              claim identity and the registry anchor
   credentials.ts        optional API keys, graceful degradation
   http.ts               the single outbound HTTP path
   dates.ts              partial-date normalization with explicit precision
+  search.ts             search_literature: adaptive window, dedup
   cache.ts              TTL cache layer
   snapshot.ts           content-addressed snapshots, verified reads
   store.ts              atomic filesystem JSON store
@@ -203,7 +255,8 @@ test/
   registry.test.js      clearance vs approval, and the rest of the mapping
   credentials.test.js   degradation when a key is missing or refused
   dates.test.js         partial dates, precision, source-specific formats
-  sources.test.js       adapter logic, plus fixture replay (currently skipped)
+  sources.test.js       adapter logic, plus fixture replay
+  search.test.js        adaptive window, context anchoring, dedup, failures
   golden.test.js        golden-set shape, incl. date_precision on every entry
   recorder.test.js      guards the recorder's raw-capture invariant
   fixtures/             recorded API responses (raw bytes + .meta.json)

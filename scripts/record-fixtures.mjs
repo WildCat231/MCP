@@ -51,8 +51,8 @@ const dist = (name) => import(path.join(repoRoot, 'dist', name));
 const { arxivUrl } = await dist('sources/arxiv.js');
 const { crossrefSearchUrl, crossrefDoiUrl } = await dist('sources/crossref.js');
 const { esearchUrl, esummaryUrl } = await dist('sources/pubmed.js');
-const { clearanceSearchUrl, approvalSearchUrl, clearanceByNumberUrl } = await dist('sources/openfda.js');
-const { summaryUrl } = await dist('sources/wikipedia.js');
+const { clearanceSearchUrl, approvalSearchUrl, clearanceByNumberUrl, OPENFDA_PMA_ENDPOINT } = await dist('sources/openfda.js');
+const { summaryUrl, searchUrl: wikipediaSearchUrl } = await dist('sources/wikipedia.js');
 const { patentsviewUrl } = await dist('sources/patentsview.js');
 const { HOST_LIMITS, DEFAULT_HOST_LIMIT, RateLimiter } = await dist('ratelimit.js');
 const { USER_AGENT } = await dist('http.js');
@@ -84,14 +84,51 @@ const FIXTURES = [
     url: () => clearanceSearchUrl({ query: 'COMPUTER MOTION', limit: 25 }),
   },
   {
+    // CONTROL 1. Proves the PMA endpoint is reachable and returns records at
+    // all, with no search clause to get wrong. If this 404s, every other PMA
+    // result is uninterpretable.
+    name: 'openfda-pma-smoke',
+    note: 'CONTROL: PMA endpoint with no search clause. Proves the endpoint works before any PMA absence is believed.',
+    url: () => `${OPENFDA_PMA_ENDPOINT}?limit=5`,
+    allowError: true,
+  },
+  {
+    // CONTROL 2. Proves the search syntax works on THIS endpoint, using a date
+    // range that must match every record. Deliberately free of any device
+    // name, so it cannot fail for domain reasons.
+    name: 'openfda-pma-syntax-control',
+    note: 'CONTROL: PMA search over a date range matching everything. Proves search syntax on the PMA endpoint independently of any device name.',
+    url: () => `${OPENFDA_PMA_ENDPOINT}?limit=5&search=decision_date:[19760101+TO+20301231]`,
+    allowError: true,
+  },
+  {
     name: 'openfda-robodoc-pma',
-    note: 'ROBODOC PMA — the approval half. Must be a separate record with a separate date.',
+    note: 'ROBODOC PMA. Previously 404. With the controls above, a 404 here becomes evidence of absence rather than an unexplained failure.',
     url: () => approvalSearchUrl({ query: 'ROBODOC', limit: 10 }),
+    // openFDA answers "no matches" with 404, so an error body IS the result.
+    allowError: true,
   },
   {
     name: 'openfda-davinci-pma',
-    note: 'da Vinci PMA, golden-set entry (expected 2000-07).',
+    note: 'da Vinci PMA, spec §8 expects regulatory_approval 2000-07. Previously 404. If absent here but present in 510k below, the golden row states the wrong event type.',
     url: () => approvalSearchUrl({ query: 'DA VINCI', limit: 10 }),
+    allowError: true,
+  },
+  {
+    // The decisive pair. If these devices appear in the 510(k) database with
+    // the dates the golden set attributes to a PMA, they were cleared, not
+    // approved — the same event-type error the system exists to catch, sitting
+    // inside its own golden set.
+    name: 'openfda-davinci-510k',
+    note: 'DECISIVE: da Vinci in the 510(k) database. A 2000-07 clearance here means spec §8 mislabels a clearance as an approval.',
+    url: () => clearanceSearchUrl({ query: 'DA VINCI', limit: 25 }),
+    allowError: true,
+  },
+  {
+    name: 'openfda-robodoc-510k',
+    note: 'DECISIVE: ROBODOC in the 510(k) database. A 2008 clearance here means the golden ROBODOC PMA row mislabels a clearance as an approval.',
+    url: () => clearanceSearchUrl({ query: 'ROBODOC', limit: 25 }),
+    allowError: true,
   },
   {
     name: 'openfda-not-found',
@@ -126,9 +163,21 @@ const FIXTURES = [
     url: () => esummaryUrl(['27306664', '35171654']),
   },
   {
+    // Previously 404 while wikipedia-disambiguation ("Mercury") returned 200,
+    // so the endpoint is fine and the title is wrong: Wikipedia titles are
+    // case-sensitive after the first character, and all-caps "ROBODOC" is not
+    // the article name. Recording the search response too, rather than
+    // guessing the correct casing, so the resolution is evidence.
+    name: 'wikipedia-robodoc-search',
+    note: 'Resolves the real article title for ROBODOC regardless of casing. Record this first; it tells you what wikipedia-robodoc should ask for.',
+    url: () => wikipediaSearchUrl('ROBODOC surgical robot', 5),
+    allowError: true,
+  },
+  {
     name: 'wikipedia-robodoc',
-    note: 'Entity aliases and redirect resolution.',
-    url: () => summaryUrl('ROBODOC'),
+    note: 'Entity aliases and redirect resolution. Sentence case, per Wikipedia title convention. If this 404s, use the title from wikipedia-robodoc-search.',
+    url: () => summaryUrl('Robodoc'),
+    allowError: true,
   },
   {
     name: 'wikipedia-disambiguation',
@@ -202,13 +251,26 @@ async function record(fixture) {
     });
     body = await response.text();
   } catch (err) {
-    console.error(`FAIL     ${fixture.name}: ${err.message}`);
-    return 'failed';
+    // A connection failure is categorically different from an HTTP error: we
+    // never reached the service, so nothing at all was learned about the
+    // query. Reporting both as "FAIL" invites reading a DNS problem as
+    // evidence that a record does not exist. Node buries the real cause one
+    // level down, so unwrap it.
+    const cause = err.cause instanceof Error ? ` (${err.cause.code ?? err.cause.message})` : '';
+    console.error(`UNREACHED ${fixture.name}: connection failed: ${err.message}${cause}`);
+    console.error(`          ${url}`);
+    console.error('          Nothing was recorded and nothing was learned — retry when the host is reachable.');
+    return 'unreached';
   }
 
   if (!response.ok && !fixture.allowError) {
-    console.error(`FAIL     ${fixture.name}: HTTP ${response.status}`);
-    return 'failed';
+    // We did reach the service. That is a real answer about this query, even
+    // though it is not a success — but this fixture did not opt into
+    // recording error bodies, so say what was lost.
+    console.error(`HTTPFAIL ${fixture.name}: HTTP ${response.status} ${response.statusText}`);
+    console.error(`          ${url}`);
+    console.error(`          Body not recorded (set allowError to capture it): ${body.slice(0, 160)}`);
+    return 'http_error';
   }
 
   await fs.mkdir(fixturesDir, { recursive: true });
@@ -254,10 +316,17 @@ if (selected.length === 0) {
   process.exit(1);
 }
 
-const tally = { recorded: 0, skipped: 0, failed: 0 };
+const tally = { recorded: 0, skipped: 0, http_error: 0, unreached: 0 };
 for (const fixture of selected) {
   tally[await record(fixture)] += 1;
 }
 
-console.log(`\n${tally.recorded} recorded, ${tally.skipped} skipped, ${tally.failed} failed`);
-process.exit(tally.failed > 0 ? 1 : 0);
+console.log(
+  `\n${tally.recorded} recorded, ${tally.skipped} skipped, ` +
+    `${tally.http_error} http errors (service answered), ${tally.unreached} unreached (never contacted)`,
+);
+if (tally.unreached > 0) {
+  console.log('\nUnreached fixtures tell you nothing about the query — do not read them as absences.');
+}
+
+process.exit(tally.http_error + tally.unreached > 0 ? 1 : 0);
