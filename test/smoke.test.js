@@ -29,7 +29,10 @@ const EXPECTED_TOOLS = [
   'clear_cache',
   'cluster_frontier',
   'disconfirm_superlative',
+  'list_snapshots',
+  'load_snapshot',
   'ping',
+  'save_snapshot',
   'search_literature',
   'verify_claim',
 ];
@@ -142,6 +145,57 @@ test('a bad argument is reported over the protocol, not thrown across it', async
     // The connection must still be usable afterwards.
     const after = await client.callTool({ name: 'ping', arguments: {} });
     assert.ok(!after.isError, 'server should survive rejected calls');
+  });
+});
+
+test('snapshots round-trip through the MCP boundary, and tampering is caught there', async () => {
+  // §5's three tools, end to end over stdio — the module was verified in
+  // isolation long before it was reachable from a client.
+  await withClient(async (client, home) => {
+    const saved = payloadOf(
+      await client.callTool({
+        name: 'save_snapshot',
+        arguments: { query: 'surgical robotics', claims: [{ id: 'c1' }] },
+      }),
+    );
+    assert.match(saved.id, /^[0-9a-f]{64}$/, 'the id is a content hash');
+    assert.equal(saved.counts.claims, 1);
+    assert.ok(saved.tool_version, 'the server stamps its own version, not the caller');
+
+    const loaded = payloadOf(await client.callTool({ name: 'load_snapshot', arguments: { id: saved.id } }));
+    assert.equal(loaded.verified, true);
+    assert.equal(loaded.query, 'surgical robotics');
+
+    const listed = payloadOf(await client.callTool({ name: 'list_snapshots', arguments: {} }));
+    assert.equal(listed.snapshots.length, 1);
+    assert.equal(listed.snapshots[0].id, saved.id);
+    assert.deepEqual(listed.unreadable, []);
+
+    // Tamper on disk. A cache would call this a miss; a snapshot must not.
+    const file = path.join(home, 'snapshots', `${saved.id}.json`);
+    const onDisk = JSON.parse(await fs.readFile(file, 'utf8'));
+    onDisk.query = 'something else entirely';
+    await fs.writeFile(file, JSON.stringify(onDisk, null, 2));
+
+    const tampered = await client.callTool({ name: 'load_snapshot', arguments: { id: saved.id } });
+    assert.ok(tampered.isError, 'a modified snapshot must fail loudly');
+    const failure = payloadOf(tampered);
+    assert.equal(failure.reason, 'checksum_mismatch');
+    assert.equal(failure.verified, false);
+
+    // And it is still visible in the listing rather than silently vanishing.
+    const after = payloadOf(await client.callTool({ name: 'list_snapshots', arguments: {} }));
+    assert.deepEqual(after.snapshots, []);
+    assert.equal(after.unreadable.length, 1);
+    assert.match(after.warning, /must not be cited/);
+  });
+});
+
+test('a missing snapshot id is an error, not an empty success', async () => {
+  await withClient(async (client) => {
+    const result = await client.callTool({ name: 'load_snapshot', arguments: { id: 'f'.repeat(64) } });
+    assert.ok(result.isError);
+    assert.equal(payloadOf(result).reason, 'not_found');
   });
 });
 

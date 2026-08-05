@@ -67,6 +67,18 @@
     {
       "name": "clear_cache",
       "description": "Delete cached entries, optionally limited to one namespace."
+    },
+    {
+      "name": "save_snapshot",
+      "description": "Freeze a completed timeline as a citable artifact, content-addressed by hash of its canonical JSON."
+    },
+    {
+      "name": "load_snapshot",
+      "description": "Load a snapshot, verifying its content hash. A modified or corrupt snapshot is a hard failure, never a silent miss."
+    },
+    {
+      "name": "list_snapshots",
+      "description": "List saved snapshots newest first, verifying each; entries failing integrity are reported rather than omitted."
     }
   ],
   "tools_generated": false,

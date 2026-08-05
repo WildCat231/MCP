@@ -8,7 +8,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**Phase 8 of 10 — `cluster_frontier` done. 248 tests green, no skips.**
+**Phase 9 of 10 — snapshots audited and exposed. 250 tests green, no skips.**
 
 | Phase | | |
 |---|---|---|
@@ -20,9 +20,10 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 | 6 | `verify_claim`, independence, superlatives | done |
 | 7 | Conflation detection (§6.6) | done |
 | 8 | `cluster_frontier` | done |
-| 9–10 | snapshots, packaging | not started |
+| 9 | Snapshots (§5, §10.9) | done |
+| 10 | `.mcpb` packaging | not started |
 
-Snapshot storage (§4 integrity, normally Phase 9) is also implemented ahead of order, because its read semantics had to be settled against the cache's.
+Snapshot storage was built during Phase 3, because its read semantics had to be settled against the cache's; Phase 9 audited it against §5 and §10.9 and exposed the three tools, which had never been registered.
 
 Seven tools are exposed today: `ping`, `search_literature`, `check_registry`, `verify_claim`, `disconfirm_superlative`, `cache_status`, `clear_cache`.
 

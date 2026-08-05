@@ -34,6 +34,7 @@ import { checkRegistry } from './registries.js';
 import type { CheckRegistryOutput } from './registries.js';
 import type { VerifyClaimOutput } from './verify/verify.js';
 import { clusterFrontier } from './cluster.js';
+import { SnapshotStore } from './snapshot.js';
 import { searchLiterature } from './search.js';
 import { verifyClaim } from './verify/verify.js';
 import { disconfirmSuperlative } from './verify/superlative.js';
@@ -115,6 +116,7 @@ export function createServer(): McpServer {
   registerVerifyClaim(server);
   registerDisconfirmSuperlative(server);
   registerClusterFrontier(server);
+  registerSnapshotTools(server);
   registerCacheStatus(server);
   registerClearCache(server);
 
@@ -240,6 +242,123 @@ function registerCheckRegistry(server: McpServer): void {
         return textResult({ ...result, cache_hit: false });
       } catch (err) {
         return errorResult(`check_registry failed: ${describe(err)}`, { records: [] });
+      }
+    },
+  );
+}
+
+/**
+ * §5's three snapshot tools.
+ *
+ * `tool_version` is filled from the server rather than taken from the caller.
+ * A snapshot records which build produced it, and a caller able to state that
+ * itself could sign a result with a version that never ran — which would
+ * defeat the reproducibility the snapshot exists to provide (§4).
+ */
+function registerSnapshotTools(server: McpServer): void {
+  const store = () => new SnapshotStore();
+
+  server.registerTool(
+    'save_snapshot',
+    {
+      title: 'Save snapshot',
+      description:
+        'Freeze a completed timeline as a citable artifact. The id is the content hash of the payload — ' +
+        'it is derived, never supplied, so it always describes what is actually stored. Written to ' +
+        '~/.frontier/snapshots/{id}.json.',
+      inputSchema: {
+        query: z.string().min(1).describe('The field or question this snapshot answers.'),
+        components: z.array(z.unknown()).default([]),
+        claims: z.array(z.unknown()).default([]),
+        verifications: z.array(z.unknown()).default([]),
+        frontier: z.array(z.unknown()).default([]),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      try {
+        const { id, path: file, snapshot } = await store().save({
+          query: input.query,
+          tool_version: TOOL_VERSION,
+          components: input.components as never,
+          claims: input.claims as never,
+          verifications: input.verifications as never,
+          frontier: input.frontier as never,
+        });
+        return textResult({
+          id,
+          path: file,
+          created_at: snapshot.created_at,
+          tool_version: snapshot.tool_version,
+          counts: {
+            components: snapshot.components.length,
+            claims: snapshot.claims.length,
+            verifications: snapshot.verifications.length,
+            frontier: snapshot.frontier.length,
+          },
+        });
+      } catch (err) {
+        return errorResult(`save_snapshot failed: ${describe(err)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    'load_snapshot',
+    {
+      title: 'Load snapshot',
+      description:
+        'Load a snapshot, verifying its content hash first. Unlike a cache read, a corrupt or modified ' +
+        'snapshot is a hard failure rather than a miss: a snapshot whose bytes no longer match its ' +
+        'address must not be cited, and returning it quietly would break the only guarantee it offers.',
+      inputSchema: { id: z.string().min(1) },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ id }) => {
+      try {
+        const result = await store().read(id);
+        if (!result.ok) {
+          return errorResult(`load_snapshot failed integrity check: ${result.failure.detail}`, {
+            reason: result.failure.reason,
+            verified: false,
+            ...(result.failure.expected_id === undefined ? {} : { expected_id: result.failure.expected_id }),
+            ...(result.failure.computed_id === undefined ? {} : { computed_id: result.failure.computed_id }),
+          });
+        }
+        return textResult({ ...result.snapshot, verified: true });
+      } catch (err) {
+        return errorResult(`load_snapshot failed: ${describe(err)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    'list_snapshots',
+    {
+      title: 'List snapshots',
+      description:
+        'List saved snapshots, newest first, verifying each. Entries that fail their integrity check are ' +
+        'reported under `unreadable` rather than omitted — a corrupt snapshot you can see is useful, one ' +
+        'silently dropped is not.',
+      inputSchema: { query: z.string().optional().describe('Case-insensitive substring filter on the query.') },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ query }) => {
+      try {
+        const listed = await store().list(query);
+        return textResult({
+          snapshots: listed.snapshots,
+          unreadable: listed.unreadable,
+          ...(listed.unreadable.length === 0
+            ? {}
+            : {
+                warning:
+                  `${listed.unreadable.length} snapshot(s) failed their integrity check and are listed under ` +
+                  '`unreadable`. They must not be cited.',
+              }),
+        });
+      } catch (err) {
+        return errorResult(`list_snapshots failed: ${describe(err)}`, { snapshots: [] });
       }
     },
   );
