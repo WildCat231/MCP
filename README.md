@@ -8,7 +8,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**All 10 phases complete, plus three gap-analysis tools. 293 tests green, 5 fixture-gated skips.**
+**All 10 phases complete, plus three gap-analysis tools. 297 tests green, 1 fixture-gated skip.**
 
 | Phase | | |
 |---|---|---|
@@ -150,9 +150,9 @@ Claims this codebase makes that have **not** been checked against reality, colle
 | openFDA PMA field mapping | **Validated** — `openfda-pma-smoke` returned 56,853 records | done |
 | Wikipedia field mapping | **Validated** against recorded fixtures | done |
 | PatentsView field mapping | Unvalidated — the host was never reached | re-record `patentsview-surgical-robot` |
+| Hacker News field mapping | **Validated** against a recorded fixture | done |
+| The YC RFS extractor | **Validated and pinned** — 13 requests, Fall 2026, reviewed against the live page | done |
 | **GDELT field mapping** | **Unvalidated — zero usable recordings.** One attempt returned 429, the other timed out. Not tested; treat both `find_incumbents`' news channel and half of `check_abandonment` as unverified. | retry `gdelt-surgical-robotics` |
-| Hacker News field mapping | Unvalidated — written from published docs | record `hackernews-*` |
-| The YC RFS page structure | Unvalidated, and the most fragile extractor here | record `yc-rfs`, then pin |
 | PatentsView requires an `X-Api-Key` | **Unknown.** Legacy `api.patentsview.org` was open; the current Search API documents the header | Handled at runtime — see below |
 | openFDA date formats (`YYYYMMDD` vs `YYYY-MM-DD`) | Both accepted defensively | `openfda-aesop-510k` fixture |
 | AESOP's 510(k) dates | **Confirmed** against K931783: received 1993-04-09, decision 1993-11-22 | done |
@@ -280,6 +280,8 @@ The first real recording extracted 19 items from the Fall 2026 page, and all thr
 | Every genuine title carried a trailing `" #"` from the heading permalink | In-page anchor elements are removed, then glyphs trimmed from both ends — not globally, so a genuine `C#` in a title survives |
 
 This is the argument for recording fixtures rather than reasoning about page structure, in one example.
+
+The recording also settled a question that could only be guessed at: the page has **no usable `__NEXT_DATA__` island and no `<main>` or `<article>` element**, so extraction runs through the heading scan with chrome stripped. That makes the chrome stripping load-bearing rather than a backstop — if it regresses, footer headings come straight back into the request list. The pinned baseline records both facts.
 
 ### No LinkedIn adapter
 
