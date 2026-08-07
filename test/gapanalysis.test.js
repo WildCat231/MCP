@@ -390,6 +390,93 @@ test('requests are extracted from the structured data island when present', asyn
   assert.equal(requests[0].description, 'We want founders building agents.', 'markup is stripped');
 });
 
+/**
+ * Reproduces the structure reported from the recorded Fall 2026 page: a batch
+ * label heading, request headings each carrying a "#" permalink glyph, and a
+ * footer whose headings are indistinguishable from request headings once you
+ * are only looking at <h2>/<h3> tags.
+ */
+const FALL_2026_SHAPE = `
+<html><body>
+  <nav><h2>Companies</h2><h2>Library</h2></nav>
+  <main>
+    <h1>Requests for Startups</h1>
+    <h2>Fall 2026 <a class="anchor" href="#fall-2026">#</a></h2>
+    <h3>AI agents for real work <a class="anchor" href="#ai-agents">#</a></h3>
+    <p>Most agents demo well and fail in production.</p>
+    <h3>Robotics for the trades <a class="anchor" href="#robotics">#</a></h3>
+    <p>Physical labour is badly underserved.</p>
+    <h3>Better enterprise search #</h3>
+    <p>Search inside companies is still terrible.</p>
+  </main>
+  <footer>
+    <h2>Footer</h2>
+    <h3>Make something people want.</h3>
+    <h3>Programs</h3><h3>Resources</h3><h3>Company</h3>
+  </footer>
+</body></html>`;
+
+test('the three reported extractor defects are fixed', async () => {
+  // As recorded: 19 items, item 1 the batch label, items 15-19 footer and nav,
+  // every genuine title carrying a trailing " #".
+  const { requests, batch, scope } = parseRfsPage(FALL_2026_SHAPE);
+  const titles = requests.map((r) => r.title);
+
+  // 1. The batch label is not a request — it is returned separately.
+  assert.equal(batch, 'Fall 2026');
+  assert.ok(!titles.includes('Fall 2026'), 'the batch label must not be counted as a request');
+
+  // 2. Footer and nav are excluded by scoping to the content container.
+  assert.equal(scope, 'main', 'extraction should be scoped, not document-wide');
+  for (const chrome of ['Footer', 'Make something people want.', 'Programs', 'Resources', 'Company', 'Companies']) {
+    assert.ok(!titles.includes(chrome), `chrome leaked into the requests: "${chrome}"`);
+  }
+
+  // 3. The anchor glyph is stripped, from markup anchors and bare text alike.
+  for (const title of titles) {
+    assert.ok(!title.includes('#'), `anchor glyph not stripped from "${title}"`);
+    assert.equal(title, title.trim(), `untrimmed whitespace in "${title}"`);
+  }
+
+  assert.deepEqual(titles, [
+    'AI agents for real work',
+    'Robotics for the trades',
+    'Better enterprise search',
+  ]);
+});
+
+test('extraction reports which path and region it used', async () => {
+  // Answers "is the data island actually there?" from the output rather than
+  // by guessing — the reprint shows it.
+  const headings = parseRfsPage(FALL_2026_SHAPE);
+  assert.equal(headings.method, 'headings');
+  assert.equal(headings.scope, 'main');
+
+  const island = parseRfsPage(
+    `<html><head><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+      requests: [{ title: 'From the island', description: 'Structured.' }],
+    })}</script></head><body><main><h3>From the markup</h3><p>x</p></main></body></html>`,
+  );
+  assert.equal(island.method, 'next-data', 'the data island wins when present');
+  assert.deepEqual(island.requests.map((r) => r.title), ['From the island']);
+});
+
+test('chrome is stripped even when there is no content container', async () => {
+  const { requests, scope } = parseRfsPage(`
+    <html><body>
+      <h3>A real request #</h3><p>body</p>
+      <footer><h3>Programs</h3><h3>Resources</h3></footer>
+    </body></html>`);
+  assert.equal(scope, 'chrome-stripped');
+  assert.deepEqual(requests.map((r) => r.title), ['A real request']);
+});
+
+test('a "#" inside a title is preserved — only the anchor glyph is trimmed', async () => {
+  // Removing every "#" would corrupt a genuine request about, say, C# tooling.
+  const { requests } = parseRfsPage('<main><h3>Tooling for C# developers <a href="#c-sharp">#</a></h3><p>x</p></main>');
+  assert.deepEqual(requests.map((r) => r.title), ['Tooling for C# developers']);
+});
+
 test('headings are the fallback, and page furniture is not mistaken for a request', async () => {
   const html = `
     <h2>Request for Startups</h2><p>intro</p>
@@ -535,6 +622,48 @@ test('fixture: the YC RFS page parses into requests', async (t) => {
     assert.ok(request.title.trim().length > 0);
     assert.ok(request.title.length < 200, `"${request.title}" is too long to be a request title`);
   }
+});
+
+test('fixture: no extracted title is chrome, a batch label, or glyph-suffixed', async (t) => {
+  // The three defects found on the recorded Fall 2026 page, asserted against
+  // the real page rather than a reconstruction of it.
+  const raw = needsFixture('yc-rfs', t);
+  if (raw === undefined) return;
+
+  const { requests, batch, scope, method } = parseRfsPage(raw);
+  const titles = requests.map((r) => r.title);
+
+  for (const title of titles) {
+    // A genuine "#" mid-title is possible in principle; on this page any "#"
+    // means the permalink glyph survived. If a real request ever contains one,
+    // this fails loudly and a human decides — which is the right trade here.
+    assert.ok(!title.includes('#'), `anchor glyph survived in "${title}"`);
+    assert.equal(title, title.trim(), `untrimmed title: "${title}"`);
+  }
+
+  if (batch !== undefined) {
+    assert.ok(!titles.includes(batch), `the batch label "${batch}" is being counted as a request`);
+    assert.ok(
+      !titles.some((x) => /^(winter|spring|summer|fall|autumn)\s+20\d{2}$/i.test(x)),
+      'a batch label is in the request list',
+    );
+  }
+
+  for (const chrome of [
+    'Footer',
+    'Make something people want.',
+    'Programs',
+    'Resources',
+    'Company',
+    'Companies',
+    'Apply',
+    'Library',
+  ]) {
+    assert.ok(!titles.includes(chrome), `page chrome leaked into the requests: "${chrome}"`);
+  }
+
+  assert.notEqual(scope, 'whole-document', 'extraction must be scoped to a content region, not the whole page');
+  t.diagnostic(`method=${method} scope=${scope} batch=${batch ?? 'none'} requests=${requests.length}`);
 });
 
 test('fixture: the RFS extraction matches its pinned baseline exactly', async (t) => {

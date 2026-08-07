@@ -132,11 +132,16 @@ function fromNextData(html: string): RfsRequest[] | undefined {
             ? record['content']
             : undefined;
 
-    if (title !== undefined && title !== '' && body !== undefined && !seen.has(title)) {
-      seen.add(title);
+    const cleanTitle = title === undefined ? undefined : title.replace(ANCHOR_GLYPHS, '').trim();
+    if (cleanTitle !== undefined && cleanTitle !== '' && body !== undefined && !seen.has(cleanTitle)) {
+      if (FURNITURE.test(cleanTitle) || BATCH_HEADING.test(cleanTitle)) {
+        for (const child of Object.values(record)) walk(child);
+        return;
+      }
+      seen.add(cleanTitle);
       const text = stripTags(body);
       found.push({
-        title,
+        title: cleanTitle,
         ...(text === '' ? {} : { description: truncate(text) }),
         ...(typeof record['url'] === 'string' ? { url: record['url'] } : {}),
       });
@@ -150,21 +155,80 @@ function fromNextData(html: string): RfsRequest[] | undefined {
 }
 
 /**
- * Fallback: read headings and the prose that follows them.
+ * Headings that are page structure rather than requests.
  *
- * Cruder and more likely to pick up navigation text, so it only runs when the
- * structured path finds nothing, and headings that look like page furniture
- * are dropped.
+ * Observed on the Fall 2026 page: the heading scan collected "Footer", "Make
+ * something people want.", "Programs", "Resources" and "Company" from the site
+ * chrome. Container scoping below is the real fix — this list is the backstop
+ * for chrome that lives inside the content region.
  */
-const FURNITURE = /^(request(s)? for startups|apply|companies|about|library|blog|jobs|contact|search|menu|home)$/i;
+const FURNITURE =
+  /^(request(s)? for startups|rfs|apply|companies|about|library|blog|jobs|contact|search|menu|home|footer|header|navigation|programs|resources|company|support|legal|press|security|privacy|terms|subscribe|follow|social|news|events|people|make something people want\.?)$/i;
 
-function fromHeadings(html: string): RfsRequest[] {
+/** A batch label heading, e.g. "Fall 2026". Read separately, never a request. */
+const BATCH_HEADING = /^(winter|spring|summer|fall|autumn)\s+20\d{2}$/i;
+
+/**
+ * Anchor glyphs that heading permalinks append to their own text.
+ *
+ * The Fall 2026 page renders each request heading with a "#" permalink inside
+ * the <h>, so every genuine title came out with a trailing " #". Stripped from
+ * both ends rather than removed globally: a title could legitimately contain a
+ * "#" in the middle (a language name, a channel), and removing those would
+ * corrupt a real request.
+ */
+const ANCHOR_GLYPHS = /^[\s#¶§¤]+|[\s#¶§¤]+$/g;
+
+/** Heading text with permalink anchors removed and glyphs trimmed. */
+function cleanHeading(html: string): string {
+  // Drop in-page anchor links first — that is where the glyph lives — then
+  // trim any glyph the markup rendered as bare text.
+  const withoutAnchors = html.replace(/<a\b[^>]*href=["']#[^"']*["'][^>]*>[\s\S]*?<\/a>/gi, ' ');
+  return stripTags(withoutAnchors).replace(ANCHOR_GLYPHS, '').trim();
+}
+
+export type ExtractionScope = 'main' | 'article' | 'chrome-stripped' | 'whole-document';
+
+/**
+ * Narrow the document to the region that holds requests.
+ *
+ * Scanning document-wide was the root defect: headings from the footer and the
+ * site nav are structurally indistinguishable from request headings once you
+ * are only looking at <h2>/<h3> tags, so no keyword filter can be relied on to
+ * separate them. Scoping to the content container removes them by position
+ * instead of by guessing at their text.
+ */
+export function contentRegion(html: string): { html: string; scope: ExtractionScope } {
+  // Greedy to the LAST closing tag, so a nested <main> cannot truncate early.
+  const main = /<main\b[^>]*>([\s\S]*)<\/main>/i.exec(html);
+  if (main?.[1] !== undefined && main[1].trim() !== '') return { html: main[1], scope: 'main' };
+
+  const article = /<article\b[^>]*>([\s\S]*)<\/article>/i.exec(html);
+  if (article?.[1] !== undefined && article[1].trim() !== '') return { html: article[1], scope: 'article' };
+
+  // No semantic container: cut the chrome out instead.
+  const stripped = html.replace(/<(footer|nav|header|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ');
+  if (stripped !== html) return { html: stripped, scope: 'chrome-stripped' };
+
+  return { html, scope: 'whole-document' };
+}
+
+/**
+ * Fallback: read headings and the prose that follows them, within the content
+ * region only. Runs when the structured path finds nothing.
+ */
+function fromHeadings(html: string, batch: string | undefined): RfsRequest[] {
   const requests: RfsRequest[] = [];
   const pattern = /<h([23])[^>]*>([\s\S]*?)<\/h\1>([\s\S]*?)(?=<h[23][^>]*>|$)/g;
+  const normalized = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim();
 
   for (const match of html.matchAll(pattern)) {
-    const title = stripTags(match[2] ?? '');
-    if (title === '' || title.length > 200 || FURNITURE.test(title)) continue;
+    const title = cleanHeading(match[2] ?? '');
+    if (title === '' || title.length > 200) continue;
+    if (FURNITURE.test(title) || BATCH_HEADING.test(title)) continue;
+    // The batch label is returned separately; counting it as a request both
+    // inflates the count and puts a non-request at the top of the list.
+    if (batch !== undefined && normalized(title) === normalized(batch)) continue;
 
     const body = stripTags(match[3] ?? '');
     requests.push({ title, ...(body === '' ? {} : { description: truncate(body) }) });
@@ -178,13 +242,31 @@ export function extractBatch(html: string): string | undefined {
   return match?.[1];
 }
 
-/** Pure. Extract requests from the RFS page HTML. */
-export function parseRfsPage(html: string): { requests: RfsRequest[]; batch?: string; error?: string } {
-  if (html.trim() === '') return { requests: [], error: 'Empty response from the RFS page.' };
+export interface RfsParse {
+  requests: RfsRequest[];
+  batch?: string;
+  /** Which extractor produced the requests — answers "is the data island there?". */
+  method: 'next-data' | 'headings';
+  /** Which region was scanned. `whole-document` means chrome could not be excluded. */
+  scope: ExtractionScope;
+  error?: string;
+}
 
-  const structured = fromNextData(html);
-  const requests = structured ?? fromHeadings(html);
+/** Pure. Extract requests from the RFS page HTML. */
+export function parseRfsPage(html: string): RfsParse {
+  if (html.trim() === '') {
+    return { requests: [], method: 'headings', scope: 'whole-document', error: 'Empty response from the RFS page.' };
+  }
+
   const batch = extractBatch(html);
+
+  // The data island is preferred when present: it is the page's own data
+  // rather than an inference from its layout, and it carries no chrome.
+  const structured = fromNextData(html);
+  const region = contentRegion(html);
+  const requests = structured ?? fromHeadings(region.html, batch);
+  const method: RfsParse['method'] = structured === undefined ? 'headings' : 'next-data';
+  const scope: ExtractionScope = structured === undefined ? region.scope : 'whole-document';
 
   if (requests.length === 0) {
     // Never an empty list: YC is never asking for nothing, so zero requests
@@ -192,21 +274,25 @@ export function parseRfsPage(html: string): { requests: RfsRequest[]; batch?: st
     return {
       requests: [],
       ...(batch === undefined ? {} : { batch }),
+      method,
+      scope,
       error:
         'Could not extract any requests from the RFS page. Neither the structured data island nor the heading ' +
         'fallback matched, which means the page structure has changed. This is a parser failure, not an empty RFS.',
     };
   }
 
-  return { requests, ...(batch === undefined ? {} : { batch }) };
+  return { requests, ...(batch === undefined ? {} : { batch }), method, scope };
 }
 
 export async function fetchRfs(
   options: HttpOptions = {},
   deps: HttpDeps = {},
-): Promise<{ requests: RfsRequest[]; batch?: string; error?: string; url: string }> {
+): Promise<RfsParse & { url: string }> {
   const result = await httpGet(YC_RFS_URL, { ...options, headers: { Accept: 'text/html', ...options.headers } }, deps);
-  if (!result.ok) return { requests: [], error: result.error, url: YC_RFS_URL };
+  if (!result.ok) {
+    return { requests: [], method: 'headings', scope: 'whole-document', error: result.error, url: YC_RFS_URL };
+  }
   return { ...parseRfsPage(result.body), url: YC_RFS_URL };
 }
 

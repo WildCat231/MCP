@@ -45,9 +45,33 @@ if (result.error !== undefined) {
   process.exit(1);
 }
 
-console.log(`Extracted ${result.requests.length} request(s)${result.batch === undefined ? '' : ` — batch: ${result.batch}`}\n`);
+console.log(`Extraction method : ${result.method}${result.method === 'headings' ? '  (no usable __NEXT_DATA__ island on this page)' : ''}`);
+console.log(`Scanned region    : ${result.scope}`);
+console.log(`Batch label       : ${result.batch ?? '(none stated)'}   [reported separately, never a request]`);
+console.log(`Requests extracted: ${result.requests.length}\n`);
+
 for (const [index, request] of result.requests.entries()) {
   console.log(`${String(index + 1).padStart(2)}. ${request.title}`);
+}
+
+// Loud self-check, so a defect is visible in the printout rather than only in
+// a test run.
+const suspicious = result.requests.filter(
+  (r) =>
+    r.title.includes('#') ||
+    r.title !== r.title.trim() ||
+    /^(winter|spring|summer|fall|autumn)\s+20\d{2}$/i.test(r.title) ||
+    /^(footer|programs|resources|company|companies|apply|library|make something people want\.?)$/i.test(r.title),
+);
+if (suspicious.length > 0) {
+  console.error(`\n${suspicious.length} title(s) still look wrong — glyphs, chrome, or the batch label:`);
+  for (const r of suspicious) console.error(`   "${r.title}"`);
+  console.error('Do NOT pin this. Fix the extractor first.');
+  process.exit(1);
+}
+if (result.scope === 'whole-document') {
+  console.error('\nExtraction was NOT scoped to a content region, so chrome may be included. Do not pin.');
+  process.exit(1);
 }
 
 if (!process.argv.includes('--write')) {
