@@ -23,7 +23,8 @@
     "pretest": "npm run build",
     "test": "node --test \"test/**/*.test.js\"",
     "record-fixtures": "node scripts/record-fixtures.mjs",
-    "bundle": "node scripts/build-bundle.mjs"
+    "bundle": "node scripts/build-bundle.mjs",
+    "pin-yc-rfs": "node scripts/pin-yc-rfs.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

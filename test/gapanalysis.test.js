@@ -5,10 +5,22 @@
  * retrieval: that a zero from a broken channel is never reported as absence,
  * that a stale RFS is never served as current, and that a parse failure is
  * never reported as an empty result.
+ *
+ * ## These do NOT validate the GDELT or Hacker News field mappings
+ *
+ * Every payload below is synthetic, shaped the way each API's documentation
+ * describes. They prove the logic is right GIVEN that shape and prove nothing
+ * about whether the shape is. GDELT in particular has produced zero usable
+ * recordings — one attempt returned a 429 and the other timed out — so it is
+ * UNVALIDATED, not tested. Only the fixture-replay tests at the bottom can
+ * change that, and they skip until a recording exists.
  */
 
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   SIGNAL_TERMS,
@@ -415,7 +427,7 @@ test('the staleness ceiling is about one batch cycle', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// the new source adapters
+// the new source adapters — SYNTHETIC payloads, see the header
 // ---------------------------------------------------------------------------
 
 test('GDELT dates and articles normalize; a malformed payload errors', async () => {
@@ -455,4 +467,115 @@ test('Hacker News stories normalize, with HTML stripped and text truncated', asy
 test('a self-post with no external link falls back to the discussion URL', async () => {
   const { stories } = parseHackerNews({ hits: [{ objectID: '7', title: 'Ask HN: did anyone try this?' }] });
   assert.equal(stories[0].url, 'https://news.ycombinator.com/item?id=7');
+});
+
+// ---------------------------------------------------------------------------
+// Fixture replay — the only tests that can confirm the field mappings
+// ---------------------------------------------------------------------------
+
+const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
+const goldenDir = path.resolve(fixturesDir, '..', 'golden');
+
+function fixtureFile(name) {
+  for (const ext of ['json', 'html', 'xml']) {
+    const file = path.join(fixturesDir, `${name}.${ext}`);
+    if (fs.existsSync(file)) return file;
+  }
+  return undefined;
+}
+
+function needsFixture(name, t) {
+  const file = fixtureFile(name);
+  if (file === undefined) {
+    t.skip(`fixture "${name}" not recorded — run: npm run record-fixtures -- --only=${name}`);
+    return undefined;
+  }
+  return fs.readFileSync(file, 'utf8');
+}
+
+test('fixture: GDELT articles normalize from a real response', async (t) => {
+  // Until this runs, the GDELT adapter is unvalidated. Two recording attempts
+  // have failed — a 429 and a connect timeout — and neither told us anything
+  // about the field mapping.
+  const raw = needsFixture('gdelt-surgical-robotics', t);
+  if (raw === undefined) return;
+
+  const { articles, error } = parseGdelt(JSON.parse(raw));
+  assert.equal(error, undefined);
+  assert.ok(articles.length > 0, 'a real GDELT response should yield articles');
+  for (const article of articles) {
+    assert.ok(article.title.length > 0);
+    assert.ok(article.url.startsWith('http'));
+    assert.match(article.seen, /^\d{4}-\d{2}-\d{2}$/, 'seendate must normalize to an ISO date');
+  }
+});
+
+test('fixture: Hacker News stories normalize from a real response', async (t) => {
+  const raw = needsFixture('hackernews-surgical-robotics', t);
+  if (raw === undefined) return;
+
+  const { stories } = parseHackerNews(JSON.parse(raw));
+  assert.ok(stories.length > 0);
+  for (const story of stories) {
+    assert.ok(story.title.length > 0);
+    assert.match(story.discussion_url, /news\.ycombinator\.com\/item\?id=/);
+    if (story.created !== '') assert.match(story.created, /^\d{4}-\d{2}-\d{2}$/);
+  }
+});
+
+test('fixture: the YC RFS page parses into requests', async (t) => {
+  const raw = needsFixture('yc-rfs', t);
+  if (raw === undefined) return;
+
+  const { requests, error } = parseRfsPage(raw);
+  assert.equal(error, undefined, 'the recorded page must parse');
+  assert.ok(requests.length > 0, 'YC is never asking for nothing');
+
+  for (const request of requests) {
+    assert.ok(request.title.trim().length > 0);
+    assert.ok(request.title.length < 200, `"${request.title}" is too long to be a request title`);
+  }
+});
+
+test('fixture: the RFS extraction matches its pinned baseline exactly', async (t) => {
+  // Pins the count and the verbatim titles, so an extractor that starts
+  // returning a *plausible* list — navigation text, half the requests, the
+  // wrong section — fails loudly instead of passing with different content.
+  const raw = needsFixture('yc-rfs', t);
+  if (raw === undefined) return;
+
+  const baselinePath = path.join(goldenDir, 'yc-rfs-expected.json');
+  assert.ok(
+    fs.existsSync(baselinePath),
+    'The RFS fixture is recorded but no baseline is pinned, so extractor drift would go unnoticed.\n' +
+      'Run: npm run pin-yc-rfs -- --write, check the printed titles against the live page, then set ' +
+      '"reviewed": true in test/golden/yc-rfs-expected.json.',
+  );
+
+  const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+  assert.equal(
+    baseline.reviewed,
+    true,
+    'The baseline was generated from the parser and has not been reviewed against the live page. ' +
+      'A parser cannot validate itself: confirm the titles are real, then set "reviewed": true.',
+  );
+
+  const { requests } = parseRfsPage(raw);
+  assert.equal(
+    requests.length,
+    baseline.request_count,
+    `Extracted ${requests.length} requests, baseline pins ${baseline.request_count}. Either the extractor ` +
+      'drifted or the page changed — re-pin only after confirming which.',
+  );
+
+  // At least two verbatim titles, so a same-count change in content is caught.
+  assert.ok(baseline.titles.length >= 2, 'a baseline needs at least two titles to be worth having');
+  const extracted = requests.map((r) => r.title);
+  for (const title of baseline.titles) {
+    assert.ok(
+      extracted.includes(title),
+      `Pinned title missing from the extraction: "${title}". The extractor is returning a different list.`,
+    );
+  }
+  assert.deepEqual(extracted, baseline.titles, 'titles must match in content and order');
 });

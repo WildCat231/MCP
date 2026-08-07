@@ -19,9 +19,20 @@
  * import a `parse*` or `to*` function from src/sources/ — `test/recorder.test.js`
  * enforces that.
  *
- * Error responses are recorded too, where a fixture sets `allowError`: an
- * openFDA 404 NOT_FOUND body and whatever PatentsView says about credentials
- * are both evidence, and both are things the adapters must handle.
+ * ## An error response is not automatically a result
+ *
+ * Some error responses ARE data: openFDA answers "no matches" with a 404 and a
+ * NOT_FOUND body, and PatentsView answers "you need a key" with a 401. Both
+ * say something true about the query, and both are things the adapters must
+ * handle, so fixtures opt into them with `allowError`.
+ *
+ * A rate limit or an outage is different in kind. A 429 or a 503 says nothing
+ * about the query — only that the service declined to answer right now.
+ * Writing one to disk produces a fixture whose "expected" content is an error
+ * page, and any replay test against it validates the parser against that error
+ * page and passes. That happened: a GDELT 429 was recorded as a fixture.
+ *
+ * So refusal statuses are never written, regardless of `allowError`.
  *
  * The recorded queries are chosen to cover the golden set (§8): the AESOP
  * 510(k) and ROBODOC PMA records that the clearance-vs-approval distinction
@@ -259,6 +270,19 @@ const FIXTURES = [
   },
 ];
 
+/**
+ * Statuses that mean "not now", never "no". These are refusals rather than
+ * answers and are never recorded, even for a fixture that opted into errors.
+ *
+ *   408 Request Timeout        the service gave up reading the request
+ *   425 Too Early              replay protection, retry later
+ *   429 Too Many Requests      rate limited
+ *   5xx                        the service is broken, not the query
+ */
+function isRefusal(status) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
 const args = process.argv.slice(2);
 const force = args.includes('--force');
 const only = args.find((a) => a.startsWith('--only='))?.slice('--only='.length);
@@ -331,6 +355,17 @@ async function record(fixture) {
     return 'unreached';
   }
 
+  if (isRefusal(response.status)) {
+    // Distinct from HTTPFAIL: the service answered, but the answer is not a
+    // result. Recording it would create a fixture whose expected content is an
+    // error page — and a replay test against that passes while proving nothing.
+    console.error(`REFUSED  ${fixture.name}: HTTP ${response.status} ${response.statusText}`);
+    console.error(`          ${url}`);
+    console.error(`          A rate limit or outage says nothing about the query. NOT written as a fixture.`);
+    console.error(`          Retry later; until then this source stays unvalidated.`);
+    return 'refused';
+  }
+
   if (!response.ok && !fixture.allowError) {
     // We did reach the service. That is a real answer about this query, even
     // though it is not a success — but this fixture did not opt into
@@ -384,17 +419,22 @@ if (selected.length === 0) {
   process.exit(1);
 }
 
-const tally = { recorded: 0, skipped: 0, http_error: 0, unreached: 0 };
+const tally = { recorded: 0, skipped: 0, refused: 0, http_error: 0, unreached: 0 };
 for (const fixture of selected) {
   tally[await record(fixture)] += 1;
 }
 
 console.log(
   `\n${tally.recorded} recorded, ${tally.skipped} skipped, ` +
-    `${tally.http_error} http errors (service answered), ${tally.unreached} unreached (never contacted)`,
+    `${tally.refused} refused (rate limit or outage, not written), ` +
+    `${tally.http_error} http errors (service answered about the query), ` +
+    `${tally.unreached} unreached (never contacted)`,
 );
 if (tally.unreached > 0) {
   console.log('\nUnreached fixtures tell you nothing about the query — do not read them as absences.');
 }
+if (tally.refused > 0) {
+  console.log('Refused fixtures tell you nothing either. Those sources remain UNVALIDATED, not tested.');
+}
 
-process.exit(tally.http_error + tally.unreached > 0 ? 1 : 0);
+process.exit(tally.refused + tally.http_error + tally.unreached > 0 ? 1 : 0);

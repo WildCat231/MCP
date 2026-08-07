@@ -19,9 +19,10 @@
  */
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import fs from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import fsSync, { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -100,9 +101,105 @@ test('the manifest entry point is the one the bundle actually contains', async (
   }
 });
 
+test('the extracted bundle starts, and says why if it does not', async (t) => {
+  // Run the entry point directly rather than through an MCP client. A client
+  // reports a dead child as "-32000 connection closed", which says only that
+  // it died; the process's own stderr says why. This test exists so that
+  // diagnosis never requires reaching for the shell.
+  if (!needsBundle(t)) return;
+  const dir = await extract();
+  const home = path.join(dir, '.test-home');
+
+  try {
+    const { ok, stderr, code, signal } = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [path.join(dir, 'dist', 'index.js')], {
+        cwd: dir,
+        env: { ...process.env, FRONTIER_HOME: home },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let captured = '';
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        child.kill();
+        resolve(result);
+      };
+
+      child.stderr.on('data', (chunk) => {
+        captured += String(chunk);
+        if (/listening on stdio/.test(captured)) finish({ ok: true, stderr: captured });
+      });
+      child.on('exit', (exitCode, exitSignal) =>
+        finish({ ok: false, stderr: captured, code: exitCode, signal: exitSignal }),
+      );
+      setTimeout(() => finish({ ok: false, stderr: `${captured}\n(timed out)`, signal: 'TIMEOUT' }), 15_000);
+    });
+
+    assert.ok(
+      ok,
+      `The bundled server exited on startup (code ${code}, signal ${signal}). Its stderr:\n${
+        stderr.trim() || '(silent)'
+      }`,
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('every runtime import resolves from the bundle alone', async (t) => {
+  // The failure mode a repo run can never catch: the repo has every
+  // devDependency installed alongside, so a missing production dependency
+  // resolves there and only there.
+  if (!needsBundle(t)) return;
+  const dir = await extract();
+
+  try {
+    const requireFrom = createRequire(path.join(dir, 'package.json'));
+    const patterns = [
+      /(?:^|[\s;}])(?:import|export)\s[^;'"]*?from\s*['"]([^'"]+)['"]/gm,
+      /(?:^|[\s;}])import\s*['"]([^'"]+)['"]/gm,
+      /\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    ];
+
+    const specifiers = new Map();
+    const walk = (current) => {
+      for (const entry of fsSync.readdirSync(current, { withFileTypes: true })) {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.js')) {
+          const source = fsSync.readFileSync(full, 'utf8');
+          for (const pattern of patterns) {
+            for (const match of source.matchAll(pattern)) {
+              const spec = match[1];
+              if (spec.startsWith('.') || spec.startsWith('node:')) continue;
+              if (!specifiers.has(spec)) specifiers.set(spec, path.relative(dir, full));
+            }
+          }
+        }
+      }
+    };
+    walk(path.join(dir, 'dist'));
+
+    assert.ok(specifiers.size > 0, 'the scan should find the imports it is checking');
+
+    const missing = [];
+    for (const [spec, from] of specifiers) {
+      try {
+        requireFrom.resolve(spec);
+      } catch {
+        missing.push(`${spec} (imported by ${from})`);
+      }
+    }
+    assert.deepEqual(missing, [], 'these resolve in the repo but not in the bundle');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('every tool the manifest advertises is reachable from the extracted bundle', async (t) => {
-  // The §10.10 check, minus the client install. Running from the extracted
-  // archive — not the repo — is what proves the dependency closure is complete.
+  // The §10.10 check, minus the client install.
   if (!needsBundle(t)) return;
   const dir = await extract();
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'frontier-bundle-home-'));
@@ -117,8 +214,21 @@ test('every tool the manifest advertises is reachable from the extracted bundle'
   });
   const client = new Client({ name: 'frontier-bundle-test', version: '0.0.0' });
 
+  // Capture the child's stderr so a connect failure reports the cause rather
+  // than only the symptom.
+  let childStderr = '';
   try {
-    await client.connect(transport);
+    try {
+      await client.connect(transport);
+      transport.stderr?.on('data', (chunk) => {
+        childStderr += String(chunk);
+      });
+    } catch (err) {
+      assert.fail(
+        `Could not connect to the bundled server: ${err instanceof Error ? err.message : String(err)}\n` +
+          `Child stderr:\n${childStderr.trim() || '(none captured — run the previous test for the real reason)'}`,
+      );
+    }
 
     const { tools } = await client.listTools();
     const live = tools.map((x) => x.name).sort();
