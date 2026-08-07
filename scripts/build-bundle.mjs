@@ -30,6 +30,8 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { inputsHash } from './lib/bundle-hash.mjs';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stagingDir = path.join(repoRoot, 'build', 'bundle');
 const outputDir = path.join(repoRoot, 'build');
@@ -206,6 +208,12 @@ const packOutput = run('npx', ['--yes', '@anthropic-ai/mcpb@latest', 'pack', sta
 console.log(packOutput.split('\n').slice(-12).join('\n'));
 
 await fs.rm(path.join(stagingDir, '.verify-home'), { recursive: true, force: true });
+// Stamp beside the artifact, so a test can check freshness without unpacking.
+await fs.writeFile(
+  `${path.join(outputDir, 'frontier.mcpb')}.stamp.json`,
+  `${JSON.stringify({ inputs_sha256: inputsHash(), built_at: new Date().toISOString(), version: pkg.version }, null, 2)}\n`,
+);
+
 if (!keep) {
   await fs.rm(stagingDir, { recursive: true, force: true });
 }

@@ -26,7 +26,9 @@ import fsSync, { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { inputsHash } from '../scripts/lib/bundle-hash.mjs';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -34,10 +36,64 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundlePath = path.join(repoRoot, 'build', 'frontier.mcpb');
 
+/**
+ * Whether the packed bundle was built from the code currently in the tree.
+ *
+ * Compared by CONTENT, not mtime: `npm test` runs `tsc` first, so dist/ is
+ * rewritten on every run even when nothing changed, and an mtime comparison
+ * would report a stale bundle every single time.
+ */
+let stalenessMemo;
+function bundleStaleness() {
+  if (stalenessMemo !== undefined) return stalenessMemo;
+
+  const stampPath = `${bundlePath}.stamp.json`;
+  if (!existsSync(stampPath)) {
+    stalenessMemo = { stale: true, reason: 'the bundle has no build stamp, so it predates staleness tracking' };
+    return stalenessMemo;
+  }
+
+  let stamp;
+  try {
+    stamp = JSON.parse(fsSync.readFileSync(stampPath, 'utf8'));
+  } catch {
+    stalenessMemo = { stale: true, reason: 'the build stamp is unreadable' };
+    return stalenessMemo;
+  }
+
+  const current = inputsHash();
+  stalenessMemo =
+    stamp.inputs_sha256 === current
+      ? { stale: false }
+      : {
+          stale: true,
+          reason: `built from ${String(stamp.inputs_sha256).slice(0, 12)}…, tree is now ${current.slice(0, 12)}…`,
+        };
+  return stalenessMemo;
+}
+
+/**
+ * Gate for every bundle test.
+ *
+ * A stale bundle and a broken build produce identical-looking output — the
+ * archive contains the previous entry point, so the failures are real
+ * MODULE_NOT_FOUND errors and missing tools against code that no longer
+ * exists. Five of six failures once traced to exactly this, and the sixth was
+ * misread as a genuine defect because nothing distinguished them. So staleness
+ * is detected up front and reported as itself.
+ */
 function needsBundle(t) {
   if (!existsSync(bundlePath)) {
     t.skip('bundle not built — run: npm run bundle');
     return false;
+  }
+  const staleness = bundleStaleness();
+  if (staleness.stale) {
+    assert.fail(
+      'STALE BUNDLE — run: npm run bundle\n' +
+        `  ${path.relative(repoRoot, bundlePath)} does not match the current tree (${staleness.reason}).\n` +
+        '  It packages code that no longer exists, so every failure below would be about the previous build.',
+    );
   }
   return true;
 }
@@ -291,16 +347,77 @@ test('the entry point runs when reached through a symlink', async (t) => {
 });
 
 test('the compiled library starts nothing when imported', async (t) => {
-  // index.js must stay side-effect free: if importing it started a server, the
-  // tests that import createServer() would each spawn a stdio listener.
+  // Tested behaviourally rather than by grepping the source. A regex over
+  // compiled output matches its own comments — tsc keeps them — so a doc
+  // comment mentioning the transport would fail a text check while the module
+  // stayed perfectly inert. What matters is whether importing it leaves
+  // anything running.
   if (!needsBundle(t)) return;
   const dir = await extract();
 
   try {
-    const source = fsSync.readFileSync(path.join(dir, 'dist', 'index.js'), 'utf8');
-    assert.ok(!/StdioServerTransport/.test(source), 'index.js must not construct a transport');
-    assert.ok(!/^main\(\)/m.test(source), 'index.js must not invoke main()');
-    assert.ok(/dist\/main\.js/.test('dist/main.js'), 'the executable lives in main.js');
+    const probe = path.join(dir, 'import-probe.mjs');
+    // Measurement order matters, and getting it wrong makes the probe report
+    // its own footprint. `process.stderr.write(...)` evaluates the member
+    // expression before its arguments, so touching stderr to REPORT the handle
+    // count instantiates the stderr handle and inflates that count by one.
+    // Likewise `process.stdin` is created lazily on first access, so reading
+    // its listener count creates a handle too. Both are captured into
+    // variables first, before anything is written.
+    await fs.writeFile(
+      probe,
+      [
+        `await import(${JSON.stringify(pathToFileURL(path.join(dir, 'dist', 'index.js')).href)});`,
+        'const handles = process._getActiveHandles?.().length ?? -1;',
+        "const stdinListeners = process.stdin.listenerCount('data');",
+        'const payload = JSON.stringify({ handles, stdinListeners });',
+        'process.stderr.write(payload);',
+      ].join('\n'),
+    );
+
+    const { code, stderr, timedOut } = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [probe], { cwd: dir, stdio: ['pipe', 'pipe', 'pipe'] });
+      let captured = '';
+      child.stderr.on('data', (chunk) => {
+        captured += String(chunk);
+      });
+      const timer = setTimeout(() => {
+        child.kill();
+        resolve({ code: null, stderr: captured, timedOut: true });
+      }, 10_000);
+      child.on('exit', (exitCode) => {
+        clearTimeout(timer);
+        resolve({ code: exitCode, stderr: captured, timedOut: false });
+      });
+    });
+
+    // Exiting on its own is the property: a module that started a stdio
+    // listener would hold the event loop open and this would hang.
+    assert.equal(timedOut, false, 'importing index.js left the event loop alive — something is listening');
+    assert.equal(code, 0, `the import probe exited ${code}. stderr:\n${stderr}`);
+
+    const observed = JSON.parse(stderr.slice(stderr.indexOf('{')));
+    assert.equal(observed.handles, 0, 'importing index.js created active handles');
+    assert.equal(observed.stdinListeners, 0, 'importing index.js subscribed to stdin');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the executable, unlike the library, does construct a transport', async (t) => {
+  // The positive half of the split. Without this, deleting the transport
+  // entirely would satisfy the test above and break the server.
+  if (!needsBundle(t)) return;
+  const dir = await extract();
+
+  try {
+    const main = fsSync.readFileSync(path.join(dir, 'dist', 'main.js'), 'utf8');
+    assert.match(main, /StdioServerTransport/, 'main.js is the executable and must build a transport');
+    assert.match(main, /connect\(/, 'and must connect it');
+
+    // And the manifest must launch the executable, not the library.
+    const manifest = JSON.parse(await fs.readFile(path.join(dir, 'manifest.json'), 'utf8'));
+    assert.match(manifest.server.entry_point, /main\.js$/, 'the manifest must point at the executable');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
