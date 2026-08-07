@@ -30,9 +30,9 @@ const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-export type CacheNamespace = 'registry' | 'literature' | 'verification';
+export type CacheNamespace = 'registry' | 'literature' | 'verification' | 'web';
 
-export const CACHE_NAMESPACES: readonly CacheNamespace[] = ['registry', 'literature', 'verification'] as const;
+export const CACHE_NAMESPACES: readonly CacheNamespace[] = ['registry', 'literature', 'verification', 'web'] as const;
 
 /**
  * TTLs from §7. The spread is about how fast the underlying truth moves:
@@ -45,6 +45,11 @@ export const CACHE_TTL_MS: Record<CacheNamespace, number> = {
   registry: 30 * DAY,
   literature: 24 * HOUR,
   verification: 7 * DAY,
+  // Scraped pages with no API contract behind them — currently the YC RFS.
+  // Seven days because the page changes on a scale of months, and because
+  // `ycombinator.ts` treats a stale copy as worse than none and needs a TTL
+  // short enough that "stale" still means something.
+  web: 7 * DAY,
 };
 
 export interface CacheEntry<T> {
@@ -258,7 +263,7 @@ export class Cache {
   /** §5 `cache_status`: entry counts, age distribution, hit rate by tool. */
   async status(): Promise<CacheStatus> {
     const now = this.#clock.now();
-    const byNamespace: Record<CacheNamespace, number> = { registry: 0, literature: 0, verification: 0 };
+    const byNamespace: Record<CacheNamespace, number> = { registry: 0, literature: 0, verification: 0, web: 0 };
     const buckets = new Map<string, number>(AGE_BUCKETS.map((b) => [b.bucket, 0]));
 
     let total = 0;

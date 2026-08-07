@@ -25,10 +25,13 @@ const entryPoint = path.join(repoRoot, 'dist', 'index.js');
 
 const EXPECTED_TOOLS = [
   'cache_status',
+  'check_abandonment',
   'check_registry',
   'clear_cache',
   'cluster_frontier',
   'disconfirm_superlative',
+  'fetch_yc_rfs',
+  'find_incumbents',
   'list_snapshots',
   'load_snapshot',
   'ping',

@@ -8,7 +8,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**All 10 phases complete. 254 tests green, no skips.**
+**All 10 phases complete, plus three gap-analysis tools. 279 tests green, no skips.**
 
 | Phase | | |
 |---|---|---|
@@ -25,7 +25,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 Snapshot storage was built during Phase 3, because its read semantics had to be settled against the cache's; Phase 9 audited it against §5 and §10.9 and exposed the three tools, which had never been registered.
 
-Seven tools are exposed today: `ping`, `search_literature`, `check_registry`, `verify_claim`, `disconfirm_superlative`, `cache_status`, `clear_cache`.
+Fourteen tools are exposed: `ping`, `search_literature`, `check_registry`, `verify_claim`, `disconfirm_superlative`, `cluster_frontier`, `save_snapshot`, `load_snapshot`, `list_snapshots`, `find_incumbents`, `check_abandonment`, `fetch_yc_rfs`, `cache_status`, `clear_cache`.
 
 ## `search_literature`
 
@@ -145,6 +145,8 @@ Claims this codebase makes that have **not** been checked against reality, colle
 | openFDA PMA field mapping | **Validated** — `openfda-pma-smoke` returned 56,853 records | done |
 | Wikipedia field mapping | **Validated** against recorded fixtures | done |
 | PatentsView field mapping | Unvalidated — the host was never reached | re-record `patentsview-surgical-robot` |
+| GDELT, Hacker News field mappings | Unvalidated — written from published docs | record `gdelt-*`, `hackernews-*` |
+| The YC RFS page structure | Unvalidated, and the most fragile extractor here | record `yc-rfs` |
 | PatentsView requires an `X-Api-Key` | **Unknown.** Legacy `api.patentsview.org` was open; the current Search API documents the header | Handled at runtime — see below |
 | openFDA date formats (`YYYYMMDD` vs `YYYY-MM-DD`) | Both accepted defensively | `openfda-aesop-510k` fixture |
 | AESOP's 510(k) dates | **Confirmed** against K931783: received 1993-04-09, decision 1993-11-22 | done |
@@ -213,6 +215,43 @@ The last row is the reason for the split. Collapsing 401 and 403 would have the 
 ## Requirements
 
 Node.js 18 or newer. No other prerequisites — no Python, no API keys, no native modules, no model downloads. The dependency tree is pure JavaScript, so the same bundle runs on macOS, Windows, and Linux.
+
+## Gap analysis
+
+Three tools beyond the spec, for answering "has anyone already built this?" rather than "what happened when".
+
+### `find_incumbents(idea_terms, control_terms)`
+
+An occupancy sweep across **literature, patents, companies, consortia, regulators and news**.
+
+`control_terms` is **required**, and that is the entire design. A zero is what this tool exists to produce and also its central hazard: "no incumbents found" and "the sweep didn't work" render identically, and the first is a green light while the second is nothing at all. So the caller names a category they already know is occupied, it runs through the **same channels via the same code path**, and where the control comes back empty that channel is broken — making the idea's zero there meaningless.
+
+Control verdicts are **per channel**, because failures are rarely global: a missing PatentsView key takes out patents while news keeps working. The output leads with a `flag` giving one of four readable verdicts — `OCCUPIED`, `APPARENTLY UNOCCUPIED`, `PARTIAL`, or `NOT INTERPRETABLE`. Occupancy stands even when a control fails, since a broken channel returns nothing rather than inventing results.
+
+Channels that are structurally weak say so rather than being silently dropped: Hacker News over-indexes English-language software startups, Wikipedia only covers notable consortia, and openFDA is US medical devices only — for a non-medical idea that channel is *inapplicable*, which the control demonstrates by failing.
+
+### `check_abandonment(entity_terms)`
+
+Searches news and Hacker News for **pivots, shutdowns, acquisitions, deprecations and wind-downs**, returning stated reasons where a source gives one.
+
+This is the signal no registry records. An empty gap and a graveyard look identical from an occupancy sweep and mean opposite things — nobody has tried, versus several tried and failed for reasons that will apply to you too.
+
+**Reasons are extracted, never summarized.** Where a source sentence contains a causal connective ("because", "citing", "due to", "after failing to"), that sentence is returned verbatim. A sentence without one is the event, not its cause, so returning it would invent an attribution the source never made. Classification records the word that triggered it, so "classified as a pivot" is auditable.
+
+Absence here is flagged as a **weak** negative: launches get announced and failures do not, and the smaller the company the quieter the ending.
+
+### `fetch_yc_rfs()`
+
+Fetches and parses [YC's Requests for Startups](https://www.ycombinator.com/rfs), cached 7 days.
+
+Two policies follow from the RFS turning over every few months:
+
+- **Stale is worse than none**, so this deliberately departs from §7's serve-stale-when-offline rule. Under 7 days it is served normally; from 7 to 90 days it is served with `stale: true`, an age, and a warning that it must not be presented as current; past 90 days — more than one batch cycle — it is **not served at all**.
+- **A parse failure is an error, never an empty list.** YC is never asking for nothing, so zero requests means the extractor broke, not that the page is empty. Extraction prefers the page's own structured data island over reading rendered markup, with a heading fallback that discards page furniture.
+
+### No LinkedIn adapter
+
+No API exposes the data, the terms of service prohibit scraping it, and the anti-bot measures make any scraper unreliable. That last point is the disqualifying one here specifically: a channel that fails *intermittently* is worse than one that does not exist, because `find_incumbents`' control can only catch a channel that fails consistently.
 
 ## Packaging
 
@@ -312,6 +351,8 @@ src/
   dates.ts              partial-date normalization with explicit precision
   search.ts             search_literature: adaptive window, dedup
   cluster.ts            TF-IDF clustering, no model download
+  occupancy.ts          find_incumbents: controlled occupancy sweep
+  abandonment.ts        check_abandonment: pivots, shutdowns, stated reasons
   registries.ts         check_registry: all four registries, truncation reporting
   verify/
     verify.ts           §6 orchestration: fields verified independently
@@ -328,6 +369,7 @@ src/
   sources/
     arxiv.ts  pubmed.ts  crossref.ts
     openfda.ts  wikipedia.ts  patentsview.ts
+    gdelt.ts  hackernews.ts  ycombinator.ts
 test/
   smoke.test.js         handshake, tool listing, tool calls
   cache.test.js         TTLs, staleness, key normalization, atomicity
@@ -342,6 +384,7 @@ test/
   verify.test.js        independence, superlatives, the §10.6 gate, determinism
   conflation.test.js    entity/alias/date/event-type detection and its negatives
   cluster.test.js       unnamed clusters, cold fields, determinism
+  gapanalysis.test.js   control interpretability, reason extraction, RFS staleness
   golden.test.js        golden-set shape, incl. date_precision on every entry
   recorder.test.js      guards the recorder's raw-capture invariant
   fixtures/             recorded API responses (raw bytes + .meta.json)

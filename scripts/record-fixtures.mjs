@@ -54,6 +54,9 @@ const { esearchUrl, esummaryUrl } = await dist('sources/pubmed.js');
 const { clearanceSearchUrl, approvalSearchUrl, clearanceByNumberUrl, OPENFDA_PMA_ENDPOINT } = await dist('sources/openfda.js');
 const { summaryUrl, searchUrl: wikipediaSearchUrl } = await dist('sources/wikipedia.js');
 const { patentsviewUrl } = await dist('sources/patentsview.js');
+const { gdeltUrl } = await dist('sources/gdelt.js');
+const { hackerNewsUrl } = await dist('sources/hackernews.js');
+const { YC_RFS_URL } = await dist('sources/ycombinator.js');
 const { HOST_LIMITS, DEFAULT_HOST_LIMIT, RateLimiter } = await dist('ratelimit.js');
 const { USER_AGENT } = await dist('http.js');
 const { credentialHeaders } = await dist('credentials.js');
@@ -217,6 +220,37 @@ const FIXTURES = [
     url: () => summaryUrl('Mercury'),
   },
   {
+    name: 'gdelt-surgical-robotics',
+    note: 'GDELT news articles — the news channel of the occupancy sweep and half of check_abandonment.',
+    url: () => gdeltUrl({ terms: ['surgical robot'], maxRecords: 20 }),
+    allowError: true,
+  },
+  {
+    name: 'gdelt-abandonment',
+    note: 'A shutdown-shaped news query. Exercises the abandonment classifier and reason extraction against real headlines.',
+    url: () => gdeltUrl({ terms: ['surgical robotics', 'shuts down'], maxRecords: 20 }),
+    allowError: true,
+  },
+  {
+    name: 'hackernews-surgical-robotics',
+    note: 'Hacker News stories — the companies channel of the occupancy sweep.',
+    url: () => hackerNewsUrl({ terms: ['surgical robotics'], hitsPerPage: 20 }),
+    allowError: true,
+  },
+  {
+    name: 'hackernews-shutdown',
+    note: 'HN shutdown chatter, for the abandonment classifier and for self-post text extraction.',
+    url: () => hackerNewsUrl({ terms: ['startup', 'shutting down'], hitsPerPage: 20 }),
+    allowError: true,
+  },
+  {
+    name: 'yc-rfs',
+    note: 'The YC Requests for Startups PAGE, as HTML. Confirms or corrects parseRfsPage, which is the most fragile extractor in the server.',
+    url: () => YC_RFS_URL,
+    accept: 'text/html',
+    allowError: true,
+  },
+  {
     name: 'patentsview-surgical-robot',
     note: 'Records whatever the endpoint says about credentials — including a 401/403 body.',
     url: () => patentsviewUrl({ text: 'surgical robot', limit: 10 }),
@@ -247,7 +281,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * suffix.
  */
 function extensionFor(fixture) {
-  return fixture.accept?.includes('xml') === true ? 'xml' : 'json';
+  if (fixture.accept?.includes('html') === true) return 'html';
+  if (fixture.accept?.includes('xml') === true) return 'xml';
+  return 'json';
 }
 
 async function record(fixture) {

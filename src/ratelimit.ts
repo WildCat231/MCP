@@ -45,6 +45,18 @@ export const HOST_LIMITS: Readonly<Record<string, HostLimit>> = {
 
   // PatentsView's documented limit is 45 requests/minute.
   'search.patentsview.org': { capacity: 5, refillPerSecond: 0.75 },
+
+  // GDELT publishes no hard cap but asks callers not to hammer it; an
+  // occupancy sweep issues one query per channel, so 2/s is ample.
+  'api.gdeltproject.org': { capacity: 2, refillPerSecond: 2 },
+
+  // Algolia's HN index is generous (10k/hour on the public tier) but
+  // check_abandonment fires five queries in a row, so it stays modest.
+  'hn.algolia.com': { capacity: 5, refillPerSecond: 5 },
+
+  // A plain web page, fetched at most once a week thanks to the cache.
+  // Capacity 1 makes an accidental loop harmless.
+  'www.ycombinator.com': { capacity: 1, refillPerSecond: 0.5 },
 };
 
 /**

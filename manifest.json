@@ -79,6 +79,18 @@
     {
       "name": "list_snapshots",
       "description": "List saved snapshots newest first, verifying each; entries failing integrity are reported rather than omitted."
+    },
+    {
+      "name": "find_incumbents",
+      "description": "Occupancy sweep across literature, patents, companies, consortia, regulators and news. Requires control_terms \u2014 a category known to be occupied \u2014 so that zeros are interpretable rather than ambiguous; read the `flag` field first."
+    },
+    {
+      "name": "check_abandonment",
+      "description": "Search news and Hacker News for pivots, shutdowns, acquisitions, deprecations and wind-downs, returning stated reasons verbatim where a source gives one."
+    },
+    {
+      "name": "fetch_yc_rfs",
+      "description": "Fetch and parse Y Combinator's current Requests for Startups, cached 7 days. A stale copy is returned only with an explicit warning, and never past 90 days."
     }
   ],
   "tools_generated": false,

@@ -56,6 +56,9 @@ test('the recorder imports only URL builders and transport helpers', async () =>
     'summaryUrl',
     'searchUrl',
     'patentsviewUrl',
+    'gdeltUrl',
+    'hackerNewsUrl',
+    'YC_RFS_URL',
     // Endpoint constants, for control fixtures that deliberately bypass the
     // query builders to test the endpoint itself.
     'OPENFDA_PMA_ENDPOINT',

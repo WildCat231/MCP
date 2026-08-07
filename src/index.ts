@@ -33,7 +33,12 @@ import { frontierHome } from './paths.js';
 import { checkRegistry } from './registries.js';
 import type { CheckRegistryOutput } from './registries.js';
 import type { VerifyClaimOutput } from './verify/verify.js';
+import { checkAbandonment } from './abandonment.js';
 import { clusterFrontier } from './cluster.js';
+import { OCCUPANCY_CHANNELS, findIncumbents } from './occupancy.js';
+import type { OccupancyChannel } from './occupancy.js';
+import { RFS_TTL_DAYS, fetchRfs, freshness } from './sources/ycombinator.js';
+import type { RfsResult } from './sources/ycombinator.js';
 import { SnapshotStore } from './snapshot.js';
 import { searchLiterature } from './search.js';
 import { verifyClaim } from './verify/verify.js';
@@ -117,6 +122,9 @@ export function createServer(): McpServer {
   registerDisconfirmSuperlative(server);
   registerClusterFrontier(server);
   registerSnapshotTools(server);
+  registerFindIncumbents(server);
+  registerCheckAbandonment(server);
+  registerFetchYcRfs(server);
   registerCacheStatus(server);
   registerClearCache(server);
 
@@ -359,6 +367,157 @@ function registerSnapshotTools(server: McpServer): void {
         });
       } catch (err) {
         return errorResult(`list_snapshots failed: ${describe(err)}`, { snapshots: [] });
+      }
+    },
+  );
+}
+
+function registerFindIncumbents(server: McpServer): void {
+  server.registerTool(
+    'find_incumbents',
+    {
+      title: 'Find incumbents',
+      description:
+        'Occupancy sweep across literature, patents, companies, consortia, regulators and news — is anyone ' +
+        'already doing this? control_terms is REQUIRED and must name a category you already know is occupied: ' +
+        'it runs through the same channels, and where it comes back empty that channel is broken, so the ' +
+        "idea's zero there means nothing. Read the `flag` field first; it says in one sentence whether the " +
+        'zeros can be believed. No LinkedIn channel — no API exposes it and its terms prohibit scraping.',
+      inputSchema: {
+        idea_terms: z.array(z.string()).min(1).describe('Terms describing the idea. ANDed.'),
+        control_terms: z
+          .array(z.string())
+          .min(1)
+          .describe('A category known to be occupied, e.g. ["surgical robot"]. Makes zeros interpretable.'),
+        channels: z
+          .array(z.enum(OCCUPANCY_CHANNELS as unknown as [OccupancyChannel, ...OccupancyChannel[]]))
+          .optional(),
+        max_per_channel: z.number().int().positive().max(50).optional(),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          await findIncumbents({
+            idea_terms: input.idea_terms,
+            control_terms: input.control_terms,
+            ...(input.channels === undefined ? {} : { channels: input.channels }),
+            ...(input.max_per_channel === undefined ? {} : { max_per_channel: input.max_per_channel }),
+          }),
+        );
+      } catch (err) {
+        return errorResult(`find_incumbents failed: ${describe(err)}`, { channels: [] });
+      }
+    },
+  );
+}
+
+function registerCheckAbandonment(server: McpServer): void {
+  server.registerTool(
+    'check_abandonment',
+    {
+      title: 'Check abandonment',
+      description:
+        'Search news and Hacker News for pivots, shutdowns, acquisitions, deprecations and wind-downs ' +
+        'affecting an entity, returning stated reasons verbatim where a source gives one. This is the ' +
+        'signal no registry records: an empty gap and a graveyard look identical from an occupancy sweep ' +
+        'and mean opposite things. Note that absence here is a WEAK negative — launches get announced and ' +
+        'failures do not.',
+      inputSchema: {
+        entity_terms: z.array(z.string()).min(1).describe('Company, product or project names. ANDed.'),
+        signals: z
+          .array(z.enum(['shutdown', 'pivot', 'acquisition', 'deprecation', 'wind_down']))
+          .optional()
+          .describe('Restrict to particular signals. Defaults to all five.'),
+        max_per_signal: z.number().int().positive().max(50).optional(),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          await checkAbandonment({
+            entity_terms: input.entity_terms,
+            ...(input.signals === undefined ? {} : { signals: input.signals }),
+            ...(input.max_per_signal === undefined ? {} : { max_per_signal: input.max_per_signal }),
+          }),
+        );
+      } catch (err) {
+        return errorResult(`check_abandonment failed: ${describe(err)}`, { hits: [] });
+      }
+    },
+  );
+}
+
+function registerFetchYcRfs(server: McpServer): void {
+  server.registerTool(
+    'fetch_yc_rfs',
+    {
+      title: 'Fetch YC Requests for Startups',
+      description:
+        "Fetch and parse Y Combinator's current Requests for Startups, cached for 7 days. The RFS turns over " +
+        'every few months, so a stale copy is worse than none: past the TTL a cached copy is returned only ' +
+        'with an explicit staleness warning, and past 90 days it is not returned at all. A parse failure is ' +
+        'reported as an error, never as an empty list — YC is never asking for nothing.',
+      inputSchema: {
+        refresh: z.boolean().optional().describe('Bypass the cache and refetch.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ refresh }) => {
+      const request = { source: 'yc-rfs' };
+      try {
+        const cache = await getCache().catch(() => undefined);
+
+        if (cache !== undefined && refresh !== true) {
+          const hit = await cache.get<RfsResult>('web', 'fetch_yc_rfs', request);
+          if (hit.outcome === 'fresh' && hit.value !== undefined) {
+            return textResult({ ...hit.value, cache_hit: true, stale: false });
+          }
+        }
+
+        const fetched = await fetchRfs();
+        if (fetched.error === undefined && fetched.requests.length > 0) {
+          const fresh: RfsResult = {
+            requests: fetched.requests,
+            source_url: fetched.url,
+            ...(fetched.batch === undefined ? {} : { batch: fetched.batch }),
+            fetched_at: new Date().toISOString(),
+          };
+          if (cache !== undefined) await cache.set('web', 'fetch_yc_rfs', request, fresh);
+          return textResult({ ...fresh, cache_hit: false, stale: false });
+        }
+
+        // The live fetch failed. Fall back to cache only within the staleness
+        // ceiling, and never silently.
+        if (cache !== undefined) {
+          const stale = await cache.get<RfsResult>('web', 'fetch_yc_rfs', request);
+          if (stale.value !== undefined && stale.age_ms !== undefined) {
+            const ageDays = stale.age_ms / 86_400_000;
+            const verdict = freshness(ageDays);
+            if (verdict.state !== 'expired') {
+              return textResult({
+                ...stale.value,
+                cache_hit: true,
+                stale: true,
+                age_days: Math.round(ageDays),
+                ttl_days: RFS_TTL_DAYS,
+                warning: verdict.warning,
+                fetch_error: fetched.error,
+              });
+            }
+            return errorResult(verdict.warning ?? 'Cached RFS is too old to return.', {
+              requests: [],
+              age_days: Math.round(ageDays),
+              fetch_error: fetched.error,
+            });
+          }
+        }
+
+        return errorResult(fetched.error ?? 'Could not fetch the RFS page.', { requests: [] });
+      } catch (err) {
+        return errorResult(`fetch_yc_rfs failed: ${describe(err)}`, { requests: [] });
       }
     },
   );
