@@ -53,7 +53,7 @@ test('the bundle contains a manifest, compiled output and its dependencies', asy
   if (!needsBundle(t)) return;
   const dir = await extract();
   try {
-    for (const required of ['manifest.json', 'package.json', 'dist/index.js']) {
+    for (const required of ['manifest.json', 'package.json', 'dist/main.js']) {
       assert.ok(existsSync(path.join(dir, required)), `bundle is missing ${required}`);
     }
 
@@ -112,7 +112,7 @@ test('the extracted bundle starts, and says why if it does not', async (t) => {
 
   try {
     const { ok, stderr, code, signal } = await new Promise((resolve) => {
-      const child = spawn(process.execPath, [path.join(dir, 'dist', 'index.js')], {
+      const child = spawn(process.execPath, [path.join(dir, 'dist', 'main.js')], {
         cwd: dir,
         env: { ...process.env, FRONTIER_HOME: home },
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -143,6 +143,164 @@ test('the extracted bundle starts, and says why if it does not', async (t) => {
         stderr.trim() || '(silent)'
       }`,
     );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+/** Minimal JSON-RPC over stdio, so the child process stays under our control. */
+function speak(child) {
+  let buffer = '';
+  const pending = new Map();
+  child.stdout.on('data', (chunk) => {
+    buffer += String(chunk);
+    let index;
+    while ((index = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, index).trim();
+      buffer = buffer.slice(index + 1);
+      if (line === '') continue;
+      try {
+        const message = JSON.parse(line);
+        const resolve = pending.get(message.id);
+        if (resolve !== undefined) {
+          pending.delete(message.id);
+          resolve(message);
+        }
+      } catch {
+        // Not a frame we asked for.
+      }
+    }
+  });
+
+  return {
+    request(id, method, params) {
+      const answer = new Promise((resolve, reject) => {
+        pending.set(id, resolve);
+        setTimeout(() => reject(new Error(`timed out waiting for ${method}`)), 10_000);
+      });
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      return answer;
+    },
+    notify(method, params) {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
+    },
+  };
+}
+
+test('the bundled server is still running after a completed handshake', async (t) => {
+  // "It started" is not the property that matters — the Phase 10 regression
+  // started fine and exited immediately, because the direct-run guard meant
+  // main() never ran and the event loop had nothing to hold it open. Exit code
+  // 0, empty stderr, no crash, no missing dependency. So this drives a real
+  // handshake and then asserts the process is STILL ALIVE, and still alive
+  // after an idle period, which is what a client actually depends on.
+  if (!needsBundle(t)) return;
+  const dir = await extract();
+  const home = path.join(dir, '.alive-home');
+
+  const child = spawn(process.execPath, [path.join(dir, 'dist', 'main.js')], {
+    cwd: dir,
+    env: { ...process.env, FRONTIER_HOME: home },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    stderr += String(chunk);
+  });
+
+  try {
+    const rpc = speak(child);
+
+    const initialized = await rpc.request(1, 'initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'frontier-liveness-test', version: '0.0.0' },
+    });
+    assert.equal(initialized.result?.serverInfo?.name, 'frontier', `handshake failed. stderr:\n${stderr}`);
+    rpc.notify('notifications/initialized', {});
+
+    const listed = await rpc.request(2, 'tools/list', {});
+    assert.ok(listed.result?.tools?.length > 0, 'the handshake should yield tools');
+
+    // The assertion the earlier test could not make.
+    assert.equal(
+      child.exitCode,
+      null,
+      `The server exited (code ${child.exitCode}) after completing the handshake. stderr:\n${stderr || '(silent)'}`,
+    );
+
+    // And it must stay up while idle — a client leaves the connection open
+    // between calls.
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    assert.equal(child.exitCode, null, 'the server exited while idle after the handshake');
+
+    // Still answering, not merely still resident.
+    const again = await rpc.request(3, 'tools/call', { name: 'ping', arguments: {} });
+    assert.ok(again.result, 'the server should still answer after idling');
+  } finally {
+    child.kill();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the entry point runs when reached through a symlink', async (t) => {
+  // The exact shape of the Phase 10 failure. An installer that launches the
+  // server through a symlink makes process.argv[1] the link while
+  // import.meta.url is the realpath; any comparison between the two is false,
+  // and a guarded entry point silently does nothing. There is no guard now,
+  // and this keeps it that way.
+  if (!needsBundle(t)) return;
+  const dir = await extract();
+  const link = path.join(dir, 'launch-via-symlink.js');
+
+  try {
+    await fs.symlink(path.join(dir, 'dist', 'main.js'), link);
+
+    const started = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [link], {
+        cwd: dir,
+        env: { ...process.env, FRONTIER_HOME: path.join(dir, '.symlink-home') },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let captured = '';
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        child.kill();
+        resolve(result);
+      };
+      child.stderr.on('data', (chunk) => {
+        captured += String(chunk);
+        if (/listening on stdio/.test(captured)) finish({ ok: true, stderr: captured });
+      });
+      child.on('exit', (code) => finish({ ok: false, stderr: captured, code }));
+      setTimeout(() => finish({ ok: false, stderr: captured, code: 'timeout' }), 10_000);
+    });
+
+    assert.ok(
+      started.ok,
+      'Launched through a symlink the server did nothing and exited ' +
+        `(code ${started.code}). stderr: ${started.stderr.trim() || '(silent)'}. ` +
+        'An is-this-the-main-module guard has been reintroduced somewhere.',
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the compiled library starts nothing when imported', async (t) => {
+  // index.js must stay side-effect free: if importing it started a server, the
+  // tests that import createServer() would each spawn a stdio listener.
+  if (!needsBundle(t)) return;
+  const dir = await extract();
+
+  try {
+    const source = fsSync.readFileSync(path.join(dir, 'dist', 'index.js'), 'utf8');
+    assert.ok(!/StdioServerTransport/.test(source), 'index.js must not construct a transport');
+    assert.ok(!/^main\(\)/m.test(source), 'index.js must not invoke main()');
+    assert.ok(/dist\/main\.js/.test('dist/main.js'), 'the executable lives in main.js');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

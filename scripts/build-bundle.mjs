@@ -110,7 +110,7 @@ function unresolvedSpecifiers(dir) {
 /** Start the staged server and confirm it comes up, capturing its stderr. */
 function verifyStartup(dir) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(dir, 'dist', 'index.js')], {
+    const child = spawn(process.execPath, [path.join(dir, 'dist', 'main.js')], {
       cwd: dir,
       // Its own home, so verification never touches the developer's cache.
       env: { ...process.env, FRONTIER_HOME: path.join(dir, '.verify-home') },

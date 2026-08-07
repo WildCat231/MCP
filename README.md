@@ -8,7 +8,7 @@ The calling model decomposes a field, proposes historical milestone claims, and 
 
 ## Status
 
-**All 10 phases complete, plus three gap-analysis tools. 290 tests green, 5 fixture-gated skips.**
+**All 10 phases complete, plus three gap-analysis tools. 293 tests green, 5 fixture-gated skips.**
 
 | Phase | | |
 |---|---|---|
@@ -295,7 +295,22 @@ The bundle stages a clean tree rather than packing the working directory: manife
 
 `npm run bundle` verifies the staged tree **before packing**: it resolves every bare import in the compiled output against the staged `node_modules`, then starts the server and waits for it to speak stdio. A bundle that cannot start fails the build with the process's own stderr in front of you, rather than three steps later as an MCP client reporting `-32000 connection closed` — which says only that the child died, never why.
 
-Six tests verify the archive, running the server from the **extracted bundle** rather than the repo — the only way to catch a missing dependency, since the repo has every devDependency installed alongside. One of them starts the entry point directly and asserts on its captured stderr, precisely so that diagnosing a startup failure never requires reaching for the shell. They skip with instructions when `build/frontier.mcpb` is absent.
+Nine tests verify the archive, running the server from the **extracted bundle** rather than the repo — the only way to catch a missing dependency, since the repo has every devDependency installed alongside. One starts the entry point directly and asserts on its captured stderr, so diagnosing a startup failure never requires the shell. Another drives a real JSON-RPC handshake and then asserts the process is **still alive** — and still answering after idling — because "it started" is not the property a client depends on, and the regression that prompted these tests started perfectly well before exiting. They skip with instructions when `build/frontier.mcpb` is absent.
+
+### The entry point has no direct-run guard, deliberately
+
+`src/index.ts` is a library and `src/main.ts` is the executable. That split exists because the guard it replaced failed twice, the same way both times:
+
+```js
+const isDirectRun = import.meta.url === pathToFileURL(process.argv[1]).href;
+```
+
+- **Windows:** `process.argv[1]` is a backslash drive path that never equals a `file://` URL.
+- **Symlinked launcher:** `process.argv[1]` is the link, `import.meta.url` is the **realpath**. Reproducible with `ln -s dist/index.js entry.js && node entry.js`.
+
+Both produce the same symptom, and it is the hardest kind to read: **exit code 0, empty stderr, no crash, no missing dependency.** The module loads, runs nothing, and the process drains. A client reports only "connection closed"; a log shows nothing at all.
+
+Fixing the comparison a second time would leave a third variant waiting — case-folding filesystems, UNC paths, percent-encoding in an install directory. So the guard is gone rather than repaired: an executable that is only ever an executable never needs to ask whether it is one. Three tests keep it that way, including one that launches through a symlink.
 
 ### What still needs a real client
 
@@ -376,7 +391,8 @@ manifest.json           MCPB manifest
 scripts/
   record-fixtures.mjs   the only thing here that touches the network
 src/
-  index.ts              MCP server entry, tool registration
+  main.ts               the executable — no is-this-the-main-module guard
+  index.ts              library: createServer() and tool registration
   types.ts              the data contract (spec §4)
   registry.ts           registry -> EventType mapping, one typed function each
   claim.ts              claim identity and the registry anchor

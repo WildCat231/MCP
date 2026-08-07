@@ -21,7 +21,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const entryPoint = path.join(repoRoot, 'dist', 'index.js');
+const entryPoint = path.join(repoRoot, 'dist', 'main.js');
 
 const EXPECTED_TOOLS = [
   'cache_status',

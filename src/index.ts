@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * frontier — MCP server entry point.
+ * frontier — server construction and tool registration.
  *
- * Phases 1–2 (CODEX_SPEC.md §10.1–10.2): starts, connects over stdio, and
- * exposes the storage diagnostics. Source adapters and verification are not
- * built yet.
+ * This module is a LIBRARY: importing it registers nothing, opens nothing, and
+ * starts nothing. `createServer()` builds a configured server and returns it.
+ * The executable lives in `main.ts`, which exists so that this file needs no
+ * is-this-the-main-module guard — see the note there for why that guard was a
+ * recurring source of silent no-op startups.
  *
- * Three invariants that later phases must not break:
+ * Three invariants that later changes must not break:
  *
  *   1. No network calls at import time (§3). Everything at module scope is
  *      pure construction; the server must start with the machine offline and
@@ -19,10 +21,8 @@
  */
 
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
 import { Cache, CACHE_NAMESPACES } from './cache.js';
@@ -767,34 +767,4 @@ function registerClearCache(server: McpServer): void {
 
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-async function main(): Promise<void> {
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-
-  // stderr, not stdout — see the header note on stream ownership.
-  process.stderr.write(`${SERVER_NAME} ${TOOL_VERSION} listening on stdio (home: ${frontierHome()})\n`);
-}
-
-/**
- * Only run when executed directly, so tests and later phases can import
- * `createServer()` and drive it over an in-memory transport.
- *
- * `pathToFileURL` rather than string-concatenating `file://`: on Windows,
- * `process.argv[1]` is a drive path with backslashes, which never equals
- * `import.meta.url` under naive concatenation — the server would import
- * cleanly and then exit without ever starting.
- */
-const entryArg = process.argv[1];
-const isDirectRun = entryArg !== undefined && import.meta.url === pathToFileURL(entryArg).href;
-
-if (isDirectRun) {
-  main().catch((err: unknown) => {
-    process.stderr.write(
-      `${SERVER_NAME}: fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
-    );
-    process.exit(1);
-  });
 }
