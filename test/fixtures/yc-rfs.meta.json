@@ -1,0 +1,10 @@
+{
+  "name": "yc-rfs",
+  "note": "The YC Requests for Startups PAGE, as HTML. Confirms or corrects parseRfsPage, which is the most fragile extractor in the server.",
+  "url": "https://www.ycombinator.com/rfs",
+  "status": 200,
+  "content_type": "text/html; charset=utf-8",
+  "recorded_at": "2026-08-07T20:00:23.244Z",
+  "bytes": 89333,
+  "sha256": "2b46afe94ff8aa58a887fec4db7634faa44519226631ff9186e014789311677f"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "hackernews-surgical-robotics",
+  "note": "Hacker News stories — the companies channel of the occupancy sweep.",
+  "url": "https://hn.algolia.com/api/v1/search?query=surgical+robotics&tags=story&hitsPerPage=20",
+  "status": 200,
+  "content_type": "application/json",
+  "recorded_at": "2026-08-07T20:00:21.678Z",
+  "bytes": 19808,
+  "sha256": "f5d955d1b27bc05b2f6d6d2099d6bfbf755daf3ca9a22461475bf59e91240f5d"
+}

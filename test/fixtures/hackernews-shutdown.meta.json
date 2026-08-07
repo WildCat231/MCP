@@ -1,0 +1,10 @@
+{
+  "name": "hackernews-shutdown",
+  "note": "HN shutdown chatter, for the abandonment classifier and for self-post text extraction.",
+  "url": "https://hn.algolia.com/api/v1/search?query=startup+shutting+down&tags=story&hitsPerPage=20",
+  "status": 200,
+  "content_type": "application/json",
+  "recorded_at": "2026-08-07T20:00:22.420Z",
+  "bytes": 21743,
+  "sha256": "11acd0b6e77c9a8eae35ca0bbebb4ba0e58ac0b0a7a0e6d84ede1528c79d489c"
+}
