@@ -12,6 +12,7 @@ import pytest
 
 from mcp import Client, StdioServerParameters, stdio_client
 
+from conftest import SANDBOX_NOTE_COUNT
 from obsidian_mcp import server as server_module
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -210,7 +211,7 @@ def test_reindex_is_callable_over_the_wire(session: Session):
 
     stats = session.run(call)
     assert stats["rebuilt"] is True
-    assert stats["notes"] == 11
+    assert stats["notes"] == SANDBOX_NOTE_COUNT
 
 
 def test_server_refuses_to_start_without_a_vault_path():

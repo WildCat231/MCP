@@ -30,6 +30,8 @@ UNTERMINATED = "unterminated"
 INVALID = "invalid_yaml"
 NOT_MAPPING = "not_mapping"
 
+UTF8_BOM = b"\xef\xbb\xbf"
+
 _FM_OPEN = re.compile(rb"^---[ \t]*\r?\n")
 _FM_CLOSE = re.compile(rb"^(?:---|\.\.\.)[ \t]*\r?$")
 _SEQ_ITEM = re.compile(r"^(\s*)-(?:\s|$)")
@@ -38,12 +40,13 @@ _INDENT = re.compile(r"^(\s*)\S")
 
 @dataclass(frozen=True)
 class Split:
-    """A note split into its raw frontmatter block and raw body.
+    """A note split into its byte order mark, raw frontmatter block and raw body.
 
-    ``open_line + inner + close_line == block`` and ``block + body == raw``.
+    ``open_line + inner + close_line == block`` and ``bom + block + body == raw``.
     """
 
     raw: bytes
+    bom: bytes
     block: bytes
     open_line: bytes
     inner: bytes
@@ -57,37 +60,45 @@ class Split:
 
 
 def split(raw: bytes) -> Split:
-    """Split raw note bytes into frontmatter block and body.
+    """Split raw note bytes into byte order mark, frontmatter block and body.
+
+    A UTF-8 BOM is peeled off before looking for the opening ``---``, so a
+    marked file's frontmatter is still found; the BOM is kept separately so
+    writers can put back exactly what the file had.
 
     Never raises.  A leading ``---`` with no closing delimiter is reported as
     ``UNTERMINATED`` and the whole file is treated as body, which is what
     Obsidian itself does.
     """
-    m = _FM_OPEN.match(raw)
-    if not m:
-        return Split(raw, b"", b"", b"", b"", raw, ABSENT)
+    bom = UTF8_BOM if raw.startswith(UTF8_BOM) else b""
+    rest = raw[len(bom) :]
 
-    open_line = raw[: m.end()]
+    m = _FM_OPEN.match(rest)
+    if not m:
+        return Split(raw, bom, b"", b"", b"", b"", rest, ABSENT)
+
+    open_line = rest[: m.end()]
     pos = m.end()
-    while pos <= len(raw):
-        nl = raw.find(b"\n", pos)
-        line = raw[pos:nl] if nl != -1 else raw[pos:]
+    while pos <= len(rest):
+        nl = rest.find(b"\n", pos)
+        line = rest[pos:nl] if nl != -1 else rest[pos:]
         if _FM_CLOSE.match(line):
-            end = len(raw) if nl == -1 else nl + 1
+            end = len(rest) if nl == -1 else nl + 1
             return Split(
                 raw=raw,
-                block=raw[:end],
+                bom=bom,
+                block=rest[:end],
                 open_line=open_line,
-                inner=raw[m.end() : pos],
-                close_line=raw[pos:end],
-                body=raw[end:],
+                inner=rest[m.end() : pos],
+                close_line=rest[pos:end],
+                body=rest[end:],
                 state=PRESENT,
             )
         if nl == -1:
             break
         pos = nl + 1
 
-    return Split(raw, b"", b"", b"", b"", raw, UNTERMINATED)
+    return Split(raw, bom, b"", b"", b"", b"", rest, UNTERMINATED)
 
 
 def _detect_sequence_indent(text: str) -> tuple[int, int] | None:

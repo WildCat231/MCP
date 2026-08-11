@@ -60,6 +60,97 @@ def test_parse_finds_several_links_on_one_line():
     assert [link.target for link in links] == ["A", "B", "C"]
 
 
+# -- code is not link text --------------------------------------------------
+
+
+def test_backtick_fence_hides_links():
+    text = "real [[A]]\n\n```\nfenced [[B]]\n```\n\nreal [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["A", "C"]
+
+
+def test_tilde_fence_hides_links():
+    text = "real [[A]]\n\n~~~\nfenced [[B]]\n~~~\n\nreal [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["A", "C"]
+
+
+def test_fence_with_an_info_string_hides_links():
+    text = "```python\n# [[B]]\n```\nreal [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["C"]
+
+
+def test_longer_fences_are_not_closed_by_shorter_ones():
+    text = "````\n```\nstill [[B]] inside\n```\n````\nreal [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["C"]
+
+
+def test_a_tilde_fence_is_not_closed_by_a_backtick_fence():
+    text = "~~~\n```\n[[B]]\n```\n~~~\nreal [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["C"]
+
+
+def test_an_unclosed_fence_swallows_the_rest_of_the_note():
+    text = "real [[A]]\n```\n[[B]]\n\nmore [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["A"]
+
+
+def test_indented_fence_up_to_three_spaces_still_counts():
+    text = "   ```\n   [[B]]\n   ```\nreal [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["C"]
+
+
+def test_inline_code_spans_hide_links():
+    text = "type `[[B]]` to link, but [[C]] is real\n"
+    assert [link.target for link in parse_links(text)] == ["C"]
+
+
+def test_multi_backtick_inline_spans_hide_links():
+    text = "``a span with [[B]] in it`` and [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["C"]
+
+
+def test_an_inline_span_is_closed_only_by_a_run_of_the_same_length():
+    text = "``[[B]] ` still inside`` then [[C]]\n"
+    assert [link.target for link in parse_links(text)] == ["C"]
+
+
+def test_unmatched_backticks_are_literal_and_do_not_hide_links():
+    text = "a stray ` backtick and [[C]] survives\n"
+    assert [link.target for link in parse_links(text)] == ["C"]
+
+
+def test_a_fence_does_not_hide_links_after_it_closes():
+    text = "```\n[[A]]\n```\n[[B]]\n```\n[[C]]\n```\n[[D]]\n"
+    assert [link.target for link in parse_links(text)] == ["B", "D"]
+
+
+def test_fenced_links_are_excluded_from_the_link_graph(vault: Vault):
+    result = vault.get_links("Code Fences.md")
+    assert [link["target"] for link in result["links"]] == ["Malformed", "OnlyFrontmatter"]
+    assert result["counts"]["total"] == 2
+    assert result["counts"]["resolved"] == 2
+    assert result["counts"]["broken"] == 0
+
+
+def test_fenced_link_targets_appear_nowhere_in_the_vault_graph(vault: Vault):
+    for note in vault.list_notes()["notes"]:
+        targets = [link["target"] for link in vault.get_links(note["path"])["links"]]
+        assert not any(target.startswith("Fenced ") for target in targets), note["path"]
+
+
+def test_fenced_links_do_not_create_backlinks(vault: Vault):
+    (vault.root / "OnlyFenced.md").write_text(
+        "```\n[[Kubernetes Ingress]]\n```\n\nInline `[[Kubernetes Ingress]]` too.\n"
+    )
+    vault.refresh()
+    sources = {b["source"] for b in vault.get_backlinks("Kubernetes Ingress.md")["backlinks"]}
+    assert "OnlyFenced.md" not in sources
+
+
+def test_real_links_in_the_fence_fixture_still_produce_backlinks(vault: Vault):
+    sources = {b["source"] for b in vault.get_backlinks("Malformed.md")["backlinks"]}
+    assert "Code Fences.md" in sources
+
+
 # -- resolution -------------------------------------------------------------
 
 

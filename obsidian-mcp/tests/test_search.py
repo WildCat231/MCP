@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import SANDBOX_NOTE_COUNT
 from obsidian_mcp.vault import SearchError, Vault
 
 
@@ -182,7 +183,7 @@ def test_vault_root_must_be_a_directory(tmp_path):
 
 def test_list_notes_returns_metadata_and_versions(vault: Vault):
     listing = vault.list_notes()
-    assert listing["total"] == 11
+    assert listing["total"] == SANDBOX_NOTE_COUNT
     alpha = next(n for n in listing["notes"] if n["path"] == "projects/Alpha.md")
     assert alpha["title"] == "Alpha"
     assert alpha["tags"] == ["project"]
@@ -196,7 +197,7 @@ def test_list_notes_filters_and_paginates(vault: Vault):
         "projects/Beta.md",
     ]
     page = vault.list_notes(limit=1, offset=1)
-    assert page["total"] == 11
+    assert page["total"] == SANDBOX_NOTE_COUNT
     assert len(page["notes"]) == 1
     assert page["notes"][0]["path"] == vault.list_notes()["notes"][1]["path"]
 
@@ -310,7 +311,7 @@ def test_reindex_rebuilds_from_scratch_and_reproduces_the_index(vault: Vault):
     stats = vault.reindex()
 
     assert stats["rebuilt"] is True
-    assert stats["added"] == stats["notes"] == 11
+    assert stats["added"] == stats["notes"] == SANDBOX_NOTE_COUNT
     assert stats["unchanged"] == 0
     assert vault.index_snapshot() == incremental
 

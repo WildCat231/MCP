@@ -246,28 +246,134 @@ def test_frontmatter_that_is_not_a_mapping(vault: Vault):
     assert path.read_bytes() == b"---\n- one\n- two\n---\nbody\n"
 
 
+# -- UTF-8 byte order mark --------------------------------------------------
+
+BOM = b"\xef\xbb\xbf"
+
+
+def test_bom_does_not_hide_the_frontmatter(vault: Vault):
+    assert raw(vault, "BOM.md").startswith(BOM), "fixture lost its BOM"
+
+    note = vault.read_note("BOM.md")
+    assert note["frontmatter_state"] == "present"
+    assert note["frontmatter"] == {
+        "title": "Byte Order Mark",
+        "tags": ["fixture"],
+        "marker": "bommed",
+    }
+    assert note["body"].startswith("This note begins with a UTF-8 byte order mark.")
+    assert note["has_bom"] is True
+
+
+def test_bom_is_stripped_from_the_text_handed_to_the_caller(vault: Vault):
+    note = vault.read_note("BOM.md")
+    assert not note["raw"].startswith("﻿")
+    assert not note["body"].startswith("﻿")
+    assert not note["frontmatter_raw"].startswith("﻿")
+    assert note["frontmatter_raw"].startswith("---\n")
+
+
+def test_bom_note_is_indexed_like_any_other(vault: Vault):
+    entry = next(n for n in vault.list_notes()["notes"] if n["path"] == "BOM.md")
+    assert entry["tags"] == ["fixture"]
+    assert entry["frontmatter_state"] == "present"
+
+    assert "BOM.md" in [
+        r["path"] for r in vault.search("mark", frontmatter_filter={"marker": "bommed"})["results"]
+    ]
+    assert [link["target"] for link in vault.get_links("BOM.md")["links"]] == ["Malformed"]
+
+
+def test_replace_body_preserves_the_bom_and_the_frontmatter(vault: Vault):
+    before = raw(vault, "BOM.md")
+    before_fm = fm_bytes(vault, "BOM.md")
+    version = vault.read_note("BOM.md")["version"]
+
+    vault.replace_body("BOM.md", "replaced body\n", version)
+
+    after = raw(vault, "BOM.md")
+    assert after.startswith(BOM), "the BOM was dropped on write"
+    assert after.count(BOM) == 1
+    assert fm_bytes(vault, "BOM.md") == before_fm
+    assert after == before[: len(before) - len(fm.split(before).body)] + b"replaced body\n"
+
+
+def test_update_frontmatter_preserves_the_bom(vault: Vault):
+    before = raw(vault, "BOM.md")
+    version = vault.read_note("BOM.md")["version"]
+
+    vault.update_frontmatter("BOM.md", {"marker": "still bommed"}, version)
+
+    after = raw(vault, "BOM.md")
+    assert after == before.replace(b"marker: bommed", b"marker: still bommed")
+
+
+def test_a_note_without_a_bom_never_gains_one(vault: Vault):
+    version = vault.read_note(COMPLEX)["version"]
+    vault.replace_body(COMPLEX, "no bom please\n", version)
+    assert not raw(vault, COMPLEX).startswith(BOM)
+
+    version = vault.read_note(COMPLEX)["version"]
+    vault.update_frontmatter(COMPLEX, {"status": "archived"}, version)
+    assert not raw(vault, COMPLEX).startswith(BOM)
+
+
+def test_bom_on_a_note_with_no_frontmatter(vault: Vault):
+    path = vault.root / "BomOnly.md"
+    path.write_bytes(BOM + b"plain body, no frontmatter\n")
+    vault.refresh()
+
+    note = vault.read_note("BomOnly.md")
+    assert note["frontmatter_state"] == "absent"
+    assert note["has_bom"] is True
+    assert note["body"] == "plain body, no frontmatter\n"
+
+    vault.update_frontmatter("BomOnly.md", {"title": "Now Has One"}, note["version"])
+    assert path.read_bytes() == (
+        BOM + b"---\ntitle: Now Has One\n---\nplain body, no frontmatter\n"
+    )
+
+
+def test_a_file_containing_only_a_bom(vault: Vault):
+    path = vault.root / "JustBom.md"
+    path.write_bytes(BOM)
+    vault.refresh()
+
+    note = vault.read_note("JustBom.md")
+    assert note["body"] == ""
+    assert note["has_bom"] is True
+    assert note["frontmatter_state"] == "absent"
+
+
 # -- the splitter itself ----------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "content,state,block,body",
+    "content,state,bom,block,body",
     [
-        (b"", "absent", b"", b""),
-        (b"hello\n", "absent", b"", b"hello\n"),
-        (b"---\na: 1\n---\n", "present", b"---\na: 1\n---\n", b""),
-        (b"---\na: 1\n---\nbody\n", "present", b"---\na: 1\n---\n", b"body\n"),
-        (b"---\na: 1\n---", "present", b"---\na: 1\n---", b""),
-        (b"---\r\na: 1\r\n---\r\nx\r\n", "present", b"---\r\na: 1\r\n---\r\n", b"x\r\n"),
-        (b"---\na: 1\n...\nbody\n", "present", b"---\na: 1\n...\n", b"body\n"),
-        (b"---\nno close\n", "unterminated", b"", b"---\nno close\n"),
-        (b"----\na\n", "absent", b"", b"----\na\n"),
-        (b"---\n---\nbody\n", "present", b"---\n---\n", b"body\n"),
+        (b"", "absent", b"", b"", b""),
+        (b"hello\n", "absent", b"", b"", b"hello\n"),
+        (b"---\na: 1\n---\n", "present", b"", b"---\na: 1\n---\n", b""),
+        (b"---\na: 1\n---\nbody\n", "present", b"", b"---\na: 1\n---\n", b"body\n"),
+        (b"---\na: 1\n---", "present", b"", b"---\na: 1\n---", b""),
+        (b"---\r\na: 1\r\n---\r\nx\r\n", "present", b"", b"---\r\na: 1\r\n---\r\n", b"x\r\n"),
+        (b"---\na: 1\n...\nbody\n", "present", b"", b"---\na: 1\n...\n", b"body\n"),
+        (b"---\nno close\n", "unterminated", b"", b"", b"---\nno close\n"),
+        (b"----\na\n", "absent", b"", b"", b"----\na\n"),
+        (b"---\n---\nbody\n", "present", b"", b"---\n---\n", b"body\n"),
+        # ... and every one of those again behind a byte order mark.
+        (BOM, "absent", BOM, b"", b""),
+        (BOM + b"hello\n", "absent", BOM, b"", b"hello\n"),
+        (BOM + b"---\na: 1\n---\nbody\n", "present", BOM, b"---\na: 1\n---\n", b"body\n"),
+        (BOM + b"---\nno close\n", "unterminated", BOM, b"", b"---\nno close\n"),
+        (BOM + b"----\na\n", "absent", BOM, b"", b"----\na\n"),
     ],
 )
-def test_split_is_lossless(content, state, block, body):
+def test_split_is_lossless(content, state, bom, block, body):
     sp = fm.split(content)
     assert sp.state == state
+    assert sp.bom == bom
     assert sp.block == block
     assert sp.body == body
-    assert sp.block + sp.body == content
+    assert sp.bom + sp.block + sp.body == content
     assert sp.open_line + sp.inner + sp.close_line == sp.block

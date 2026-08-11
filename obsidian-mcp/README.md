@@ -56,9 +56,13 @@ written but has not been exercised — no `FastMCP` build was installed here.
 
 ## Guarantees
 
-**Frontmatter is opaque by default.** A note is stored as `fm_block + body`,
-both raw bytes. `replace_body` reuses `fm_block` verbatim, so byte-identity is
-structural rather than best-effort.
+**Frontmatter is opaque by default.** A note is stored as `bom + fm_block +
+body`, all raw bytes. `replace_body` reuses `bom` and `fm_block` verbatim, so
+byte-identity is structural rather than best-effort. A UTF-8 BOM is peeled off
+before the opening `---` is looked for, so a marked file's frontmatter is still
+found; the text handed to the caller has the BOM stripped and `has_bom` records
+that the file had one. Writers put back exactly what was there — a marked file
+keeps its BOM, an unmarked file never gains one.
 
 **Frontmatter edits refuse to reformat.** `update_frontmatter` uses
 `ruamel.yaml` round-trip mode with the source document's own sequence
@@ -81,6 +85,9 @@ from a stale read is not worth returning.
 **Wikilinks resolve like Obsidian**, by note name anywhere in the vault rather
 than by relative path, case-insensitively. `[[Note|alias]]`, `[[Note#heading]]`,
 `[[Note#^block]]`, `![[embeds]]` and frontmatter `aliases` are all handled.
+Links inside fenced code blocks (both ``` and `~~~`, including unclosed ones)
+and inside inline `` `code` `` spans are not links, matching what Obsidian
+renders.
 Where a single answer is required, an ambiguous bare name raises
 `ambiguous_reference` listing the candidates; `get_links` instead marks the
 link `ambiguous` and lists candidates, so one duplicate name cannot break the
@@ -118,6 +125,11 @@ Because Obsidian resolves `[[Name]]` by name, a rename does break inbound
 links, so both tools return `affected_backlinks` listing every note that
 references the moved one. Rewriting them would mean mutating files the caller
 never named; that is left as an explicit decision.
+
+Code masking covers link extraction only: an inline `#tag` inside a code fence
+is still indexed as a tag. Indented (four-space) code blocks are not masked.
+Markdown-style `[text](note.md)` links are not in the graph — wikilinks only.
+Only a UTF-8 BOM is recognised; UTF-16 files are not supported.
 
 ## Tests
 

@@ -11,6 +11,7 @@ from obsidian_mcp.vault import Vault
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SANDBOX = PROJECT_ROOT / "sandbox_vault"
+SANDBOX_NOTE_COUNT = len(list(SANDBOX.rglob("*.md")))
 
 
 @pytest.fixture(autouse=True)

@@ -34,6 +34,7 @@ BM25_B = 0.75
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 _WIKILINK_RE = re.compile(r"(!?)\[\[([^\[\]\n]*)\]\]")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*(.*)$")
 _INLINE_TAG_RE = re.compile(r"(?<![\w#/])#([A-Za-z0-9_/\-]*[A-Za-z_/\-][A-Za-z0-9_/\-]*)")
 
 
@@ -117,10 +118,95 @@ class Link:
         }
 
 
+def _blank(chars: list[str], start: int, end: int) -> None:
+    """Overwrite a span with spaces, leaving line breaks so lines still line up."""
+    for i in range(start, end):
+        if chars[i] not in "\r\n":
+            chars[i] = " "
+
+
+def _mask_fences(text: str) -> str:
+    """Blank out ``` and ~~~ fenced blocks, including an unclosed final one."""
+    chars = list(text)
+    fence: tuple[str, int] | None = None
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        end = pos + len(line)
+        match = _FENCE_RE.match(line.rstrip("\r\n"))
+        if fence is None:
+            # A backtick fence's info string may not itself contain a backtick.
+            if match is not None and not (
+                match.group(1)[0] == "`" and "`" in match.group(2)
+            ):
+                fence = (match.group(1)[0], len(match.group(1)))
+                _blank(chars, pos, end)
+        else:
+            char, length = fence
+            _blank(chars, pos, end)
+            closes = (
+                match is not None
+                and match.group(1)[0] == char
+                and len(match.group(1)) >= length
+                and not match.group(2).strip()
+            )
+            if closes:
+                fence = None
+        pos = end
+    return "".join(chars)
+
+
+def _find_backtick_run(text: str, start: int, length: int) -> int | None:
+    """Index of the next run of exactly ``length`` backticks at or after start."""
+    i = text.find("`", start)
+    while i != -1:
+        j = i + 1
+        while j < len(text) and text[j] == "`":
+            j += 1
+        if j - i == length:
+            return i
+        i = text.find("`", j)
+    return None
+
+
+def _mask_inline_code(text: str) -> str:
+    """Blank out `code spans`, which close only on a run of the same length."""
+    i = text.find("`")
+    if i == -1:
+        return text
+    chars = list(text)
+    while i != -1:
+        j = i + 1
+        while j < len(text) and text[j] == "`":
+            j += 1
+        length = j - i
+        close = _find_backtick_run(text, j, length)
+        if close is None:
+            i = text.find("`", j)  # unmatched run, treat the backticks as literal
+        else:
+            _blank(chars, i, close + length)
+            i = text.find("`", close + length)
+    return "".join(chars)
+
+
+def mask_code(text: str) -> str:
+    """Blank out code regions so wikilinks inside them are not counted.
+
+    Obsidian renders neither fenced blocks nor inline code spans as links.
+    Masking replaces those characters with spaces rather than removing them,
+    so every match offset still indexes the original text.
+    """
+    if "```" in text or "~~~" in text:
+        text = _mask_fences(text)
+    return _mask_inline_code(text)
+
+
 def parse_links(text: str) -> list[Link]:
-    """Extract wikilinks, including embeds, aliases, headings and block refs."""
+    """Extract wikilinks, including embeds, aliases, headings and block refs.
+
+    Links inside fenced code blocks and inline code spans are skipped.
+    """
     links: list[Link] = []
-    for match in _WIKILINK_RE.finditer(text):
+    for match in _WIKILINK_RE.finditer(mask_code(text)):
         embed = match.group(1) == "!"
         inner = match.group(2)
         alias = None
@@ -137,7 +223,8 @@ def parse_links(text: str) -> list[Link]:
             heading = heading.strip() or None
         links.append(
             Link(
-                raw=match.group(0),
+                # Slice the original: masking preserves offsets, not content.
+                raw=text[match.start() : match.end()],
                 target=inner.strip(),
                 heading=heading,
                 block=block,
@@ -505,7 +592,10 @@ class Vault:
             "frontmatter_error": error,
             "frontmatter_raw": sp.block.decode("utf-8", errors="replace"),
             "body": body,
-            "raw": raw.decode("utf-8", errors="replace"),
+            # The BOM is stripped from the text handed out; `has_bom` records
+            # that the file had one, and writers put it back unchanged.
+            "raw": raw[len(sp.bom) :].decode("utf-8", errors="replace"),
+            "has_bom": bool(sp.bom),
             "links": [link.as_dict() for link in links],
             "tags": extract_tags(parsed, body),
             "aliases": extract_aliases(parsed),
@@ -882,7 +972,7 @@ class Vault:
         rel = self.relpath_of(note_path)
         self._check_version(rel, raw, expected_version)
         sp = fm.split(raw)
-        content = sp.block + body.encode("utf-8")
+        content = sp.bom + sp.block + body.encode("utf-8")
         self._atomic_write(note_path, content)
         self.refresh()
         return {
@@ -934,7 +1024,7 @@ class Vault:
                     path=rel,
                 )
             block = fm.new_block(updates)
-            content = block + raw
+            content = sp.bom + block + sp.body
         else:
             try:
                 block = fm.edit_block(sp, updates, delete_keys)
@@ -944,7 +1034,7 @@ class Vault:
                 raise FrontmatterError(
                     f"{rel} has no frontmatter key {exc.args[0]!r}", path=rel
                 ) from exc
-            content = block + sp.body
+            content = sp.bom + block + sp.body
 
         self._atomic_write(note_path, content)
         self.refresh()
