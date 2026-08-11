@@ -1,0 +1,6 @@
+# Runtime
+mcp>=2.0,<3           # tested against 2.0.0; server.py also supports mcp 1.x FastMCP
+ruamel.yaml>=0.18     # tested against 0.19.1; round-trip mode is required
+
+# Development
+pytest>=8             # tested against 9.1.1
