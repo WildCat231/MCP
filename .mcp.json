@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "frontier": {
+      "command": "node",
+      "args": ["/home/user/MCP/vendor/frontier/dist/main.js"],
+      "env": {}
+    }
+  }
+}

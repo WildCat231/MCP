@@ -1,0 +1,14 @@
+# Vendored frontier MCP build (rebuild from branch claude/codex-phase-1-skeleton-63lfpa)
+vendor/
+
+# Cached raw API payloads — re-fetchable, can be large
+data/raw/
+
+# Regenerable backtest intermediates (deterministic given the seed)
+data/*.rds
+data/backtest_log.txt
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
