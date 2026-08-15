@@ -1,0 +1,8 @@
+# Generated pipeline data — append-only logs, daily table, reports.
+# Never commit collected/settled data or analysis artifacts.
+/data/*.csv
+/data/reports/
+/data/manual_uploads/*.json
+*.tmp.*
+.Rhistory
+.RData
